@@ -31,6 +31,37 @@ export type StreamEvent =
 
 type StreamCallback = (event: StreamEvent) => void;
 
+function quoteForStatus(value: string): string {
+  if (value.length === 0) {
+    return '""';
+  }
+
+  return /\s|["'`$\\]/u.test(value)
+    ? JSON.stringify(value)
+    : value;
+}
+
+function redactArgsForStatus(args: string[]): string[] {
+  const redacted: string[] = [];
+
+  for (let index = 0; index < args.length; index += 1) {
+    const token = args[index]!;
+
+    if (token === "--api-key" || token === "--header") {
+      redacted.push(token);
+      if (index + 1 < args.length) {
+        redacted.push("[REDACTED]");
+        index += 1;
+      }
+      continue;
+    }
+
+    redacted.push(token);
+  }
+
+  return redacted;
+}
+
 function getCandidateBinaries(config: ShellConfig): string[] {
   const candidates = [
     config.binaryPath,
@@ -102,16 +133,24 @@ function extractPartialText(payload: unknown): string | null {
 
 function createLineDecoder(
   onLine: (line: string) => void,
-): (chunk: string) => void {
+): { push(chunk: string): void; flush(): void } {
   let buffer = "";
 
-  return (chunk: string) => {
-    buffer += chunk;
-    const lines = buffer.split(/\r?\n/);
-    buffer = lines.pop() ?? "";
-    for (const line of lines) {
-      onLine(line);
-    }
+  return {
+    push(chunk: string): void {
+      buffer += chunk;
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        onLine(line);
+      }
+    },
+    flush(): void {
+      if (buffer.length > 0) {
+        onLine(buffer);
+        buffer = "";
+      }
+    },
   };
 }
 
@@ -209,13 +248,53 @@ export class CursorAgentAdapter {
     ];
     onEvent({
       type: "status",
-      message: `$ cursor-agent ${finalArgs.join(" ")}`,
+      message: `$ cursor-agent ${redactArgsForStatus(finalArgs).map(quoteForStatus).join(" ")}`,
     });
 
     return await new Promise<CommandRunResult>((resolve, reject) => {
       let assistantBuffer = "";
       let emittedAssistantText = false;
       let finalResultText: string | null = null;
+      const decodeJsonLine = createLineDecoder((line) => {
+        if (line.trim().length === 0) {
+          return;
+        }
+
+        try {
+          const payload = JSON.parse(line) as unknown;
+          onEvent({ type: "json", payload });
+          if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+            const candidate = payload as Record<string, unknown>;
+            if (
+              candidate.type === "result" &&
+              candidate.subtype === "success" &&
+              typeof candidate.result === "string"
+            ) {
+              finalResultText = candidate.result;
+            }
+
+            if (candidate.type === "assistant") {
+              const nextText = extractPartialText(payload);
+              if (nextText) {
+                if (nextText.startsWith(assistantBuffer)) {
+                  const delta = nextText.slice(assistantBuffer.length);
+                  assistantBuffer = nextText;
+                  if (delta.length > 0) {
+                    emittedAssistantText = true;
+                    onEvent({ type: "partial", text: delta });
+                  }
+                } else {
+                  assistantBuffer += nextText;
+                  emittedAssistantText = true;
+                  onEvent({ type: "partial", text: nextText });
+                }
+              }
+            }
+          }
+        } catch {
+          onEvent({ type: "stdout", text: line });
+        }
+      });
 
       const child = spawn(binary, finalArgs, {
         cwd: options.cwd ?? options.workspace ?? process.cwd(),
@@ -226,52 +305,11 @@ export class CursorAgentAdapter {
       });
 
       if (!options.inheritStdio) {
-        const decodeJsonLine = createLineDecoder((line) => {
-          if (line.trim().length === 0) {
-            return;
-          }
-
-          try {
-            const payload = JSON.parse(line) as unknown;
-            onEvent({ type: "json", payload });
-            if (payload && typeof payload === "object" && !Array.isArray(payload)) {
-              const candidate = payload as Record<string, unknown>;
-              if (
-                candidate.type === "result" &&
-                candidate.subtype === "success" &&
-                typeof candidate.result === "string"
-              ) {
-                finalResultText = candidate.result;
-              }
-
-              if (candidate.type === "assistant") {
-                const nextText = extractPartialText(payload);
-                if (nextText) {
-                  if (nextText.startsWith(assistantBuffer)) {
-                    const delta = nextText.slice(assistantBuffer.length);
-                    assistantBuffer = nextText;
-                    if (delta.length > 0) {
-                      emittedAssistantText = true;
-                      onEvent({ type: "partial", text: delta });
-                    }
-                  } else {
-                    assistantBuffer += nextText;
-                    emittedAssistantText = true;
-                    onEvent({ type: "partial", text: nextText });
-                  }
-                }
-              }
-            }
-          } catch {
-            onEvent({ type: "stdout", text: line });
-          }
-        });
-
         child.stdout!.on("data", (chunk: Buffer | string) => {
           const text = chunk.toString();
           stdoutChunks.push(text);
           if (options.parseStreamJson) {
-            decodeJsonLine(text);
+            decodeJsonLine.push(text);
             return;
           }
           onEvent({ type: "stdout", text });
@@ -289,6 +327,10 @@ export class CursorAgentAdapter {
       });
 
       child.on("close", (code) => {
+        if (options.parseStreamJson && !options.inheritStdio) {
+          decodeJsonLine.flush();
+        }
+
         if (
           options.parseStreamJson &&
           !emittedAssistantText &&

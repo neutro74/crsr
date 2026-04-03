@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -15,8 +16,10 @@ export function getAskpassInfo(): AskpassInfo {
     "versions",
   );
 
+  const helperPath = path.join(versionDir, "cursor-askpass");
+
   return {
-    helperPath: path.join(versionDir, "cursor-askpass"),
-    available: true,
+    helperPath,
+    available: existsSync(helperPath),
   };
 }

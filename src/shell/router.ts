@@ -1,3 +1,4 @@
+import { statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -86,6 +87,18 @@ function tokenize(input: string): string[] {
   return tokens;
 }
 
+function sanitizeCommandForHistory(input: string): string {
+  if (input.startsWith("/api-key ")) {
+    return "/api-key [REDACTED]";
+  }
+
+  if (input.startsWith("/header add ")) {
+    return "/header add [REDACTED]";
+  }
+
+  return input;
+}
+
 const directDelegateNames = new Set([
   ...agentCommands.map((command) => command.name),
   ...sessionCommands
@@ -106,7 +119,7 @@ export class ShellRouter {
       return { kind: "noop" };
     }
 
-    this.store.recordCommand(input);
+    this.store.recordCommand(sanitizeCommandForHistory(input));
 
     if (input.startsWith("!")) {
       return this.runShellCommand(input.slice(1).trim());
@@ -624,7 +637,28 @@ export class ShellRouter {
 
   private setWorkspace(rawWorkspace: string): RouteOutcome {
     const expanded = expandHome(rawWorkspace.trim());
-    const nextWorkspace = this.store.setActiveWorkspace(path.resolve(expanded));
+    const nextWorkspace = path.resolve(expanded);
+    let stats;
+
+    try {
+      stats = statSync(nextWorkspace);
+    } catch {
+      return {
+        kind: "message",
+        title: "Workspace",
+        body: `Path does not exist: ${nextWorkspace}`,
+      };
+    }
+
+    if (!stats.isDirectory()) {
+      return {
+        kind: "message",
+        title: "Workspace",
+        body: `Path is not a directory: ${nextWorkspace}`,
+      };
+    }
+
+    this.store.setActiveWorkspace(nextWorkspace);
     return {
       kind: "message",
       title: "Workspace",

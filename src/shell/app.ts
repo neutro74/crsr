@@ -131,6 +131,18 @@ function escapeTags(value: string): string {
   return value.replace(/\{/gu, "\\{").replace(/\}/gu, "\\}");
 }
 
+function sanitizeCommandForDisplay(input: string): string {
+  if (input.startsWith("/api-key ")) {
+    return "/api-key [REDACTED]";
+  }
+
+  if (input.startsWith("/header add ")) {
+    return "/header add [REDACTED]";
+  }
+
+  return input;
+}
+
 function applyMarkdown(raw: string): string {
   try {
     const lines = raw.split("\n");
@@ -570,7 +582,7 @@ export async function runApp({
     historyIndex = null;
     inputBeforeHistory = "";
     autoScroll = true;
-    pushEntry(entries, "command", trimmed);
+    pushEntry(entries, "command", sanitizeCommandForDisplay(trimmed));
     renderUi();
 
     try {

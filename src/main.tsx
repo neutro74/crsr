@@ -7,6 +7,7 @@ import { allCommands } from "./runtime/commandCatalog.js";
 import { ShellRouter } from "./shell/router.js";
 import { runApp } from "./shell/app.js";
 import { createSessionStore } from "./session/sessionStore.js";
+import { APP_NAME, APP_VERSION } from "./version.js";
 
 interface CliOptions {
   initialCommand?: string;
@@ -32,7 +33,7 @@ Run 'crsr --once /help' to see all interactive commands.
 }
 
 function renderVersion(): void {
-  console.log("crsr 0.2.0");
+  console.log(`${APP_NAME} ${APP_VERSION}`);
 }
 
 function parseCliArguments(
@@ -139,21 +140,21 @@ if (cliOptions === "version") {
 }
 
 const config = loadShellConfig();
-const initialWorkspace =
-  cliOptions.workspace ?? config.workspace ?? os.homedir();
-const store = createSessionStore(config.paths, initialWorkspace);
-if (initialWorkspace) {
-  store.setActiveWorkspace(initialWorkspace);
+const initialWorkspace = cliOptions.workspace ?? config.workspace;
+const store = createSessionStore(config.paths, initialWorkspace, {
+  model: config.defaultModel,
+  mode: config.defaultMode,
+  forceMode: config.forceMode,
+  sandbox: config.sandbox,
+  approveMcps: config.approveMcps,
+});
+
+if (cliOptions.workspace) {
+  store.setActiveWorkspace(cliOptions.workspace);
 }
 
 if (config.apiKey) {
   store.setApiKey(config.apiKey);
-}
-if (config.approveMcps) {
-  store.setApproveMcps(true);
-}
-if (config.sandbox) {
-  store.setSandbox(config.sandbox);
 }
 
 const adapter = new CursorAgentAdapter(config);
