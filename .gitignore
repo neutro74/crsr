@@ -1,0 +1,4 @@
+dist/
+.cursor/
+node_modules/
+session.json
