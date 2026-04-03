@@ -232,6 +232,6 @@ replaces the active `crsr` executable in place.
 
 ## Release Notes
 
-- The current release version is `0.2.1`.
+- The current release version is `0.3.0`.
 - `npm run prepare:version` syncs `src/version.ts` from `package.json` so the CLI
   version output, bundled wrapper, and packaged binary stay aligned.
