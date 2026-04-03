@@ -140,6 +140,7 @@ Options:
 
 - `--workspace <path>`: start in a specific workspace
 - `--once`: run one prompt or command headlessly, then exit
+- `--update`: download the latest GitHub release binary and replace the current `crsr` executable
 - `-h`, `--help`: show help
 - `-v`, `--version`: show version
 
@@ -151,6 +152,7 @@ crsr --workspace ~/project
 crsr --once "summarize this repository"
 crsr --once /status
 crsr --once '!pwd'
+crsr --update
 ```
 
 ## Configuration
@@ -218,6 +220,15 @@ release/crsr-linux-x64
 ```
 
 That artifact is the standalone binary you can attach to a GitHub release.
+
+Installed standalone binaries and locally installed wrappers can self-update with:
+
+```bash
+crsr --update
+```
+
+The updater currently targets the Linux x64 release asset published on GitHub and
+replaces the active `crsr` executable in place.
 
 ## Release Notes
 

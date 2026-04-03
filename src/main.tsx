@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import os from "node:os";
 import { loadShellConfig } from "./config/config.js";
 import { renderCommandResult } from "./output/renderers.js";
 import { CursorAgentAdapter } from "./runtime/cursorAgent.js";
@@ -7,11 +6,13 @@ import { allCommands } from "./runtime/commandCatalog.js";
 import { ShellRouter } from "./shell/router.js";
 import { runApp } from "./shell/app.js";
 import { createSessionStore } from "./session/sessionStore.js";
+import { runSelfUpdate } from "./update.js";
 import { APP_NAME, APP_VERSION } from "./version.js";
 
 interface CliOptions {
   initialCommand?: string;
   oneShot: boolean;
+  update: boolean;
   workspace?: string;
 }
 
@@ -24,6 +25,7 @@ Usage:
 Options:
   --workspace <path>  Set the workspace for delegated commands
   --once              Run the initial command once and exit (headless)
+  --update            Download and replace this binary from GitHub releases
   -h, --help          Show this help message
   -v, --version       Show the version
 
@@ -39,7 +41,7 @@ function renderVersion(): void {
 function parseCliArguments(
   argv: string[],
 ): CliOptions | "help" | "version" {
-  const options: CliOptions = { oneShot: false };
+  const options: CliOptions = { oneShot: false, update: false };
 
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
@@ -48,6 +50,11 @@ function parseCliArguments(
 
     if (token === "--once") {
       options.oneShot = true;
+      continue;
+    }
+
+    if (token === "--update") {
+      options.update = true;
       continue;
     }
 
@@ -139,55 +146,68 @@ if (cliOptions === "version") {
   process.exit(0);
 }
 
-const config = loadShellConfig();
-const initialWorkspace = cliOptions.workspace ?? config.workspace;
-const store = createSessionStore(config.paths, initialWorkspace, {
-  model: config.defaultModel,
-  mode: config.defaultMode,
-  forceMode: config.forceMode,
-  sandbox: config.sandbox,
-  approveMcps: config.approveMcps,
-});
-
-if (cliOptions.workspace) {
-  store.setActiveWorkspace(cliOptions.workspace);
-}
-
-if (config.apiKey) {
-  store.setApiKey(config.apiKey);
-}
-
-const adapter = new CursorAgentAdapter(config);
-const normalizedInitialCommand = normalizeInitialCommand(
-  cliOptions.initialCommand,
-);
-
-void (async () => {
-  if (cliOptions.oneShot) {
-    if (!normalizedInitialCommand) {
-      console.error("--once requires an initial command or prompt.");
+if (cliOptions.update) {
+  void runSelfUpdate()
+    .then(() => {
+      process.exit(0);
+    })
+    .catch((error: unknown) => {
+      const message =
+        error instanceof Error ? error.stack ?? error.message : String(error);
+      process.stderr.write(`${message}\n`);
       process.exit(1);
-    }
+    });
+} else {
+  const config = loadShellConfig();
+  const initialWorkspace = cliOptions.workspace ?? config.workspace;
+  const store = createSessionStore(config.paths, initialWorkspace, {
+    model: config.defaultModel,
+    mode: config.defaultMode,
+    forceMode: config.forceMode,
+    sandbox: config.sandbox,
+    approveMcps: config.approveMcps,
+  });
 
-    const exitCode = await runOneShotCommand(
-      normalizedInitialCommand,
-      adapter,
-      store,
-      config,
-    );
-    process.exit(exitCode);
+  if (cliOptions.workspace) {
+    store.setActiveWorkspace(cliOptions.workspace);
   }
 
-  await runApp({
-    config,
-    adapter,
-    store,
-    initialCommand: normalizedInitialCommand,
-    oneShot: cliOptions.oneShot,
+  if (config.apiKey) {
+    store.setApiKey(config.apiKey);
+  }
+
+  const adapter = new CursorAgentAdapter(config);
+  const normalizedInitialCommand = normalizeInitialCommand(
+    cliOptions.initialCommand,
+  );
+
+  void (async () => {
+    if (cliOptions.oneShot) {
+      if (!normalizedInitialCommand) {
+        console.error("--once requires an initial command or prompt.");
+        process.exit(1);
+      }
+
+      const exitCode = await runOneShotCommand(
+        normalizedInitialCommand,
+        adapter,
+        store,
+        config,
+      );
+      process.exit(exitCode);
+    }
+
+    await runApp({
+      config,
+      adapter,
+      store,
+      initialCommand: normalizedInitialCommand,
+      oneShot: cliOptions.oneShot,
+    });
+  })().catch((error: unknown) => {
+    const message =
+      error instanceof Error ? error.stack ?? error.message : String(error);
+    process.stderr.write(`${message}\n`);
+    process.exit(1);
   });
-})().catch((error: unknown) => {
-  const message =
-    error instanceof Error ? error.stack ?? error.message : String(error);
-  process.stderr.write(`${message}\n`);
-  process.exit(1);
-});
+}
