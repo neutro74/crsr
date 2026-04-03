@@ -1,6 +1,6 @@
 {
   "name": "crsr",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Terminal wrapper shell for Cursor Agent",
   "type": "module",
   "main": "dist/crsr.cjs",
