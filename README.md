@@ -1,174 +1,219 @@
 # crsr
 
-A terminal TUI and headless CLI wrapper around [`cursor-agent`](https://cursor.sh), the Cursor AI agent binary. Provides a persistent shell with slash commands, session memory, workspace switching, and a full-screen blessed interface.
+`crsr` is a full-screen terminal shell for `cursor-agent`.
 
-## Requirements
+It gives Cursor Agent a dedicated TUI with persistent session state, slash commands, local shell mode, workspace switching, and a cleaner "stay in the terminal" workflow for both interactive use and one-shot automation.
 
-- Node.js 18+
-- `cursor-agent` binary on PATH, at `~/.local/bin/cursor-agent`, or configured via `CURSOR_AGENT_BINARY` / `binaryPath`
+## What crsr Does
 
-## Install
+- Runs `cursor-agent` inside a dedicated full-screen terminal UI.
+- Keeps a persistent workspace, model, mode, and command history between launches.
+- Supports normal prompts, plan mode, ask mode, and headless one-shot execution.
+- Adds local shell mode with `!command` so you can run terminal commands inline.
+- Exposes common `cursor-agent` features as slash commands instead of raw flags.
+- Supports MCP management, chat resume/continue flows, cloud mode, and worktrees.
+- Can be installed as a normal local wrapper or packaged as a standalone Linux binary.
+
+## Screenshots
+
+### Launch screen
+
+![crsr launch screen](docs/assets/launch-screen.png)
+
+### Shell mode
+
+![crsr shell mode](docs/assets/shell-mode.png)
+
+### Agent response
+
+![crsr agent response](docs/assets/agent-response.png)
+
+## Core Features
+
+### Full-screen TUI
+
+- Animated branded header and status bar.
+- Conversation transcript with timestamps and tone labels.
+- Input history navigation and slash-command autocomplete.
+- Markdown-aware rendering for agent responses.
+
+### Prompting modes
+
+- Plain text sends a normal agent prompt.
+- `/plan` or `/mode plan` switches to planning mode.
+- `/ask` or `/mode ask` switches to read-only Q&A mode.
+- `/new-chat` clears active resume/continue state and starts fresh.
+
+### Local shell mode
+
+- Prefix input with `!` to run a shell command in the active workspace.
+- Uses your login shell via `$SHELL`.
+- Streams command output directly into the transcript.
+- Best for short, non-interactive commands.
+- Commands time out after 30 seconds.
+
+Examples:
 
 ```bash
-npm install
-npm run release   # builds and copies dist/crsr → ~/.local/bin/crsr
+!pwd
+!git status
+!cd src && npm test
 ```
 
-Or run directly without installing:
+### Session memory
+
+crsr persists session state across launches:
+
+- command history
+- recent workspaces
+- active workspace
+- selected model
+- selected mode
+- force / auto-run state
+- sandbox setting
+- MCP auto-approval setting
+- custom headers
+
+It also supports in-session transient state for:
+
+- API keys
+- `--continue`
+- pinned `--resume <chatId>`
+
+### Workspace control
+
+- `/workspace [path]` and `/cd [path]`
+- `/recent [n]`
+- per-workspace prompting context
+
+### Agent control
+
+- `/model [name|reset]`
+- `/force`
+- `/auto-run [on|off|status]`
+- `/sandbox [enabled|disabled|off]`
+- `/approve-mcps`
+- `/continue`
+- `/resume [chatId|clear]`
+- `/api-key [key|clear]`
+- `/header [add <Name: Value>|remove <n>|list|clear]`
+
+### Cursor Agent passthrough
+
+crsr exposes common `cursor-agent` commands directly:
+
+- `/login`
+- `/logout`
+- `/status`
+- `/whoami`
+- `/about`
+- `/models`
+- `/update`
+- `/generate-rule`
+- `/rule`
+- `/rules`
+- `/install-shell-integration`
+- `/uninstall-shell-integration`
+- `/setup-terminal`
+- `/acp`
+- `/raw <args...>`
+
+### Sessions, chats, MCPs, and worktrees
+
+- `/ls`
+- `/create-chat`
+- `/cloud`
+- `/worktree [name] [--base <branch>] [--skip-setup]`
+- `/mcp list`
+- `/mcp login <id>`
+- `/mcp list-tools <id>`
+- `/mcp enable <id>`
+- `/mcp disable <id>`
+
+## CLI Usage
 
 ```bash
-npm run dev [options] [command or prompt]
-```
-
-## Usage
-
-```
 crsr [options] [initial command or prompt...]
+```
 
 Options:
-  --workspace <path>  Set the active workspace for all delegated commands
-  --once              Run one command headlessly and exit (non-interactive)
-  -h, --help          Show help
-  -v, --version       Show version
-```
 
-**Interactive mode** (default): launches the full-screen TUI. Type `/help` to list all commands. Plain text sends a prompt to the agent.
+- `--workspace <path>`: start in a specific workspace
+- `--once`: run one prompt or command headlessly, then exit
+- `-h`, `--help`: show help
+- `-v`, `--version`: show version
 
-**Headless / scripting:**
+Examples:
+
 ```bash
-crsr --once "refactor the auth module to use async/await"
-crsr --once --workspace ~/myproject /status
-crsr --workspace ~/myproject    # opens TUI with workspace pre-set
+crsr
+crsr --workspace ~/project
+crsr --once "summarize this repository"
+crsr --once /status
+crsr --once '!pwd'
 ```
-
-## Interactive Commands
-
-### Shell
-| Command | Description |
-|---|---|
-| `/help` | Show all commands grouped by category |
-| `/clear` | Clear the conversation pane |
-| `/history` | Show command history |
-| `/workspace [path]` | Show or set the active workspace (`/cd` is an alias) |
-| `/recent [n]` | List recent workspaces; `/recent <n>` to switch to one |
-| `/model [name\|reset]` | Show or set the model for all prompts |
-| `/mode [normal\|plan\|ask]` | Set agent mode: normal (default), plan (read-only planning), ask (Q&A) |
-| `/force` | Toggle force/yolo mode — skips tool confirmations |
-| `/config` | Show current session configuration |
-| `/raw <args...>` | Forward raw arguments directly to `cursor-agent` |
-| `/exit` | Quit crsr |
-
-### Agent (delegated to `cursor-agent`)
-| Command | Description |
-|---|---|
-| `/login` | Authenticate with Cursor |
-| `/logout` | Sign out |
-| `/status` / `/whoami` | View authentication status |
-| `/about` | Show version, system, and account info |
-| `/models` | List available models |
-| `/update` | Update `cursor-agent` to the latest version |
-| `/generate-rule` / `/rule` | Create a new Cursor rule interactively |
-| `/install-shell-integration` | Install shell integration to `~/.zshrc` |
-| `/uninstall-shell-integration` | Remove shell integration |
-
-### Session
-| Command | Description |
-|---|---|
-| `/ls` | List resumable chat sessions |
-| `/resume` | Resume the latest chat session |
-| `/create-chat` | Create a new empty chat and return its ID |
-| `/cloud` | Launch agent in cloud mode |
-| `/worktree [name]` | Start agent in an isolated git worktree |
-
-### MCP
-| Command | Description |
-|---|---|
-| `/mcp list` | List configured MCP servers |
-| `/mcp login <id>` | Authenticate with an MCP server |
-| `/mcp list-tools <id>` | List tools exposed by an MCP server |
-| `/mcp enable <id>` | Approve an MCP server |
-| `/mcp disable <id>` | Disable an MCP server |
 
 ## Configuration
 
-Config file: `~/.config/crsr/config.json` (respects `$XDG_CONFIG_HOME`).
+Global config lives at `~/.config/crsr/config.json` and supports:
 
 ```json
 {
   "binaryPath": "/custom/path/to/cursor-agent",
   "workspace": "/default/workspace/path",
-  "defaultModel": "claude-sonnet-4-6",
+  "defaultModel": "gpt-5",
   "defaultMode": "normal",
   "forceMode": false,
   "trustPrintMode": true,
-  "commandPassthrough": true
+  "commandPassthrough": true,
+  "approveMcps": false,
+  "sandbox": "enabled",
+  "apiKey": "optional-session-default",
+  "defaultHeaders": ["X-Foo: bar"]
 }
 ```
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `binaryPath` | string | — | Explicit path to `cursor-agent` binary. Also reads `CURSOR_AGENT_BINARY` env var. |
-| `workspace` | string | `$HOME` | Default workspace directory |
-| `defaultModel` | string | agent default | Model to use for all prompts |
-| `defaultMode` | `normal\|plan\|ask` | `"normal"` | Default agent mode |
-| `forceMode` | boolean | `false` | Skip tool confirmations by default |
-| `trustPrintMode` | boolean | `true` | Pass `--trust` in headless mode (avoids workspace trust prompts) |
-| `commandPassthrough` | boolean | `true` | Allow unknown slash commands to be forwarded to `cursor-agent` |
+`cursor-agent` binary resolution order:
 
-Binary resolution order:
-1. `config.binaryPath`
-2. `CURSOR_AGENT_BINARY` environment variable
+1. `binaryPath` in config
+2. `CURSOR_AGENT_BINARY`
 3. `~/.local/bin/cursor-agent`
-4. `cursor-agent` on PATH
+4. `cursor-agent` on `PATH`
 
-## Session State
+## Install and Run
 
-Session is persisted to `~/.local/share/crsr/session.json` (respects `$XDG_DATA_HOME`).
+Requirements:
 
-Stored: command history (up to 200 entries), recent workspaces (up to 20), active workspace, current model, mode, and force flag. State is restored on next launch.
+- Node.js 18+
+- a working `cursor-agent` installation
 
-## Cursor Rules
+Install dependencies and install the local wrapper:
 
-`cursor-agent` automatically loads `.cursor/rules/*.mdc` files from the active workspace (and walks up the directory tree). Rules in `~/.cursor/rules/` apply globally across all projects.
-
-Create rules interactively with `/generate-rule`, or place `.mdc` files manually:
-
-```
----
-description: Brief description (used for agent-requestable rules)
-globs: **/*.ts          # optional: apply when matching files are open
-alwaysApply: true       # optional: inject into every session
----
-
-# Rule Title
-
-Your guidance here.
+```bash
+npm install
+npm run release
 ```
 
-## Build Scripts
+That installs a local `crsr` launcher in `~/.local/bin/crsr`.
 
-| Script | Description |
-|---|---|
-| `npm run dev` | Run TypeScript source directly via `tsx` |
-| `npm run build` | Compile to `dist/` with `tsc` |
-| `npm run bundle` | Single-file CJS bundle at `dist/crsr` via esbuild (with shebang) |
-| `npm run release` | Bundle + copy to `~/.local/bin/crsr` |
-| `npm run check` | Type-check only, no emit |
+You can also run from source:
 
-## Project Structure
-
+```bash
+npm run dev
 ```
-src/
-├── main.tsx                 # CLI entry point
-├── config/config.ts         # Config loading (XDG, Zod validation)
-├── session/sessionStore.ts  # Session persistence
-├── runtime/
-│   ├── cursorAgent.ts       # cursor-agent subprocess + NDJSON streaming
-│   └── commandCatalog.ts    # Slash command registry
-├── shell/
-│   ├── app.ts               # Blessed TUI application
-│   ├── router.ts            # Input routing and command dispatch
-│   └── generatedLogoFrames.ts
-├── output/renderers.ts      # String formatters for all output views
-└── security/askpass.ts      # cursor-askpass path helper
+
+## Standalone Binary
+
+crsr can also be packaged as a self-contained Linux binary:
+
+```bash
+npm run package:linux
 ```
+
+This produces:
+
+```text
+release/crsr-linux-x64
+```
+
+That artifact is the standalone binary you can attach to a GitHub release.

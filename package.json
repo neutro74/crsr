@@ -9,6 +9,7 @@
     "build": "tsc -p tsconfig.json",
     "bundle": "esbuild src/main.tsx --bundle --platform=node --format=cjs --external:blessed --outfile=dist/crsr.cjs",
     "release": "npm run bundle && printf '#!/bin/sh\\nexec node /home/davidc/.local/share/custom-cursor-shell/dist/crsr.cjs \"$@\"\\n' > ~/.local/bin/crsr && chmod +x ~/.local/bin/crsr",
+    "package:linux": "npm run bundle && mkdir -p release && pkg dist/crsr.cjs --targets node18-linux-x64 --output release/crsr-linux-x64 --public-packages '*'",
     "start": "node dist/main.js",
     "check": "tsc --noEmit -p tsconfig.json"
   },
@@ -33,6 +34,7 @@
     "@types/blessed": "^0.1.27",
     "@types/node": "^25.5.0",
     "esbuild": "^0.28.0",
+    "pkg": "^5.8.1",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2"
   }
