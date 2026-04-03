@@ -21,6 +21,13 @@ interface TransientState {
 }
 
 export interface SessionSnapshot extends PersistedSessionState, TransientState {}
+export interface SessionDefaults {
+  model?: string;
+  mode?: "normal" | "plan" | "ask";
+  forceMode?: boolean;
+  sandbox?: "enabled" | "disabled" | null;
+  approveMcps?: boolean;
+}
 
 const DEFAULT_STATE: PersistedSessionState = {
   commandHistory: [],
@@ -49,6 +56,7 @@ export class SessionStore {
   public constructor(
     private readonly sessionFile: string,
     initialWorkspace?: string,
+    private readonly defaults: SessionDefaults = {},
   ) {
     this.state = this.load(initialWorkspace);
   }
@@ -178,17 +186,27 @@ export class SessionStore {
                 ? normalizeWorkspace(initialWorkspace)
                 : null,
           model:
-            typeof parsed.model === "string" ? parsed.model : null,
+            typeof parsed.model === "string"
+              ? parsed.model
+              : this.defaults.model ?? null,
           mode:
-            parsed.mode === "plan" || parsed.mode === "ask"
+            parsed.mode === "normal" ||
+            parsed.mode === "plan" ||
+            parsed.mode === "ask"
               ? parsed.mode
-              : "normal",
-          forceMode: parsed.forceMode === true,
+              : this.defaults.mode ?? "normal",
+          forceMode:
+            typeof parsed.forceMode === "boolean"
+              ? parsed.forceMode
+              : this.defaults.forceMode ?? false,
           sandbox:
             parsed.sandbox === "enabled" || parsed.sandbox === "disabled"
               ? parsed.sandbox
-              : null,
-          approveMcps: parsed.approveMcps === true,
+              : this.defaults.sandbox ?? null,
+          approveMcps:
+            typeof parsed.approveMcps === "boolean"
+              ? parsed.approveMcps
+              : this.defaults.approveMcps ?? false,
           customHeaders: Array.isArray(parsed.customHeaders)
             ? parsed.customHeaders.filter(
                 (entry): entry is string => typeof entry === "string",
@@ -198,6 +216,11 @@ export class SessionStore {
       } catch {
         return {
           ...DEFAULT_STATE,
+          model: this.defaults.model ?? null,
+          mode: this.defaults.mode ?? "normal",
+          forceMode: this.defaults.forceMode ?? false,
+          sandbox: this.defaults.sandbox ?? null,
+          approveMcps: this.defaults.approveMcps ?? false,
           activeWorkspace: initialWorkspace
             ? normalizeWorkspace(initialWorkspace)
             : null,
@@ -207,6 +230,11 @@ export class SessionStore {
 
     return {
       ...DEFAULT_STATE,
+      model: this.defaults.model ?? null,
+      mode: this.defaults.mode ?? "normal",
+      forceMode: this.defaults.forceMode ?? false,
+      sandbox: this.defaults.sandbox ?? null,
+      approveMcps: this.defaults.approveMcps ?? false,
       activeWorkspace: initialWorkspace
         ? normalizeWorkspace(initialWorkspace)
         : null,
@@ -225,6 +253,7 @@ export class SessionStore {
 export function createSessionStore(
   paths: ShellPaths,
   initialWorkspace?: string,
+  defaults?: SessionDefaults,
 ): SessionStore {
-  return new SessionStore(paths.sessionFile, initialWorkspace);
+  return new SessionStore(paths.sessionFile, initialWorkspace, defaults);
 }

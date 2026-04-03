@@ -1,5 +1,4 @@
 import { spawn } from "node:child_process";
-import os from "node:os";
 import type { CommandRunResult, StreamEvent } from "./cursorAgent.js";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -7,8 +6,20 @@ const MAX_CAPTURE_BYTES = 64 * 1024;
 
 type StreamCallback = (event: StreamEvent) => void;
 
+function getChunkSize(chunks: string[]): number {
+  return chunks.reduce((total, item) => total + item.length, 0);
+}
+
+function getShellInvocation(shell: string, command: string): string[] {
+  if (process.platform === "win32") {
+    return ["-Command", command];
+  }
+
+  return ["-lc", command];
+}
+
 function appendWithLimit(chunks: string[], chunk: string): void {
-  const currentSize = chunks.reduce((total, item) => total + item.length, 0);
+  const currentSize = getChunkSize(chunks);
   if (currentSize >= MAX_CAPTURE_BYTES) {
     return;
   }
@@ -22,7 +33,9 @@ export async function runLocalShellCommand(
   cwd: string,
   onEvent: StreamCallback,
 ): Promise<CommandRunResult> {
-  const shell = process.env.SHELL || (process.platform === "win32" ? "powershell" : "bash");
+  const shell =
+    process.env.SHELL || (process.platform === "win32" ? "powershell" : "bash");
+  const shellArgs = getShellInvocation(shell, command);
   const startTime = Date.now();
   const stdoutChunks: string[] = [];
   const stderrChunks: string[] = [];
@@ -37,7 +50,7 @@ export async function runLocalShellCommand(
     let stdoutTruncated = false;
     let stderrTruncated = false;
 
-    const child = spawn(shell, ["-lc", command], {
+    const child = spawn(shell, shellArgs, {
       cwd,
       env: process.env,
       stdio: ["ignore", "pipe", "pipe"],
@@ -50,7 +63,7 @@ export async function runLocalShellCommand(
 
     child.stdout.on("data", (chunk: Buffer | string) => {
       const text = chunk.toString();
-      const before = stdoutChunks.reduce((total, item) => total + item.length, 0);
+      const before = getChunkSize(stdoutChunks);
       appendWithLimit(stdoutChunks, text);
       if (!stdoutTruncated && before + text.length > MAX_CAPTURE_BYTES) {
         stdoutTruncated = true;
@@ -60,7 +73,7 @@ export async function runLocalShellCommand(
 
     child.stderr.on("data", (chunk: Buffer | string) => {
       const text = chunk.toString();
-      const before = stderrChunks.reduce((total, item) => total + item.length, 0);
+      const before = getChunkSize(stderrChunks);
       appendWithLimit(stderrChunks, text);
       if (!stderrTruncated && before + text.length > MAX_CAPTURE_BYTES) {
         stderrTruncated = true;
@@ -98,7 +111,7 @@ export async function runLocalShellCommand(
       }
 
       resolve({
-        args: [shell, "-lc", command],
+        args: [shell, ...shellArgs],
         exitCode: timedOut ? 124 : (code ?? 1),
         stdout: stdoutChunks.join(""),
         stderr: stderrChunks.join(""),

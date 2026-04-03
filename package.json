@@ -1,16 +1,20 @@
 {
   "name": "crsr",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Terminal wrapper shell for Cursor Agent",
   "type": "module",
   "main": "dist/crsr.cjs",
   "scripts": {
     "dev": "tsx src/main.tsx",
+    "prepare:version": "node ./scripts/sync-version.mjs",
+    "prebuild": "npm run prepare:version",
     "build": "tsc -p tsconfig.json",
+    "prebundle": "npm run prepare:version",
     "bundle": "esbuild src/main.tsx --bundle --platform=node --format=cjs --external:blessed --outfile=dist/crsr.cjs",
-    "release": "npm run bundle && printf '#!/bin/sh\\nexec node /home/davidc/.local/share/custom-cursor-shell/dist/crsr.cjs \"$@\"\\n' > ~/.local/bin/crsr && chmod +x ~/.local/bin/crsr",
+    "release": "npm run bundle && node ./scripts/install-local-wrapper.mjs",
+    "prepackage:linux": "npm run prepare:version",
     "package:linux": "npm run bundle && mkdir -p release && pkg package.json --targets node18-linux-x64 --output release/crsr-linux-x64 --public-packages '*'",
-    "start": "node dist/main.js",
+    "start": "node dist/crsr.cjs",
     "check": "tsc --noEmit -p tsconfig.json"
   },
   "keywords": [

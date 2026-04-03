@@ -194,7 +194,8 @@ npm install
 npm run release
 ```
 
-That installs a local `crsr` launcher in `~/.local/bin/crsr`.
+That bundles the app and installs a local `crsr` launcher in `~/.local/bin/crsr`
+which points at this checkout's `dist/crsr.cjs`.
 
 You can also run from source:
 
@@ -217,3 +218,9 @@ release/crsr-linux-x64
 ```
 
 That artifact is the standalone binary you can attach to a GitHub release.
+
+## Release Notes
+
+- The current release version is `0.2.1`.
+- `npm run prepare:version` syncs `src/version.ts` from `package.json` so the CLI
+  version output, bundled wrapper, and packaged binary stay aligned.
