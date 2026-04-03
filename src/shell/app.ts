@@ -675,7 +675,25 @@ export async function runApp({
 
     destroyed = true;
     clearInterval(animationTimer);
-    screen.destroy();
+    try {
+      const maybeScreen = screen as blessed.Widgets.Screen & {
+        program?: { destroy?: () => void; isAlt?: boolean };
+        emit: (event: string) => boolean;
+      };
+
+      if (maybeScreen.program) {
+        screen.destroy();
+      } else {
+        maybeScreen.emit("destroy");
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unknown screen cleanup error";
+      process.stderr.write(`crsr cleanup warning: ${message}\n`);
+      (screen as blessed.Widgets.Screen & { emit: (event: string) => boolean }).emit(
+        "destroy",
+      );
+    }
   }
 
   screen.on("resize", () => {

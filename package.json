@@ -37,5 +37,11 @@
     "pkg": "^5.8.1",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2"
+  },
+  "pkg": {
+    "assets": [
+      "node_modules/blessed/usr/**/*",
+      "node_modules/blessed/vendor/**/*"
+    ]
   }
 }
