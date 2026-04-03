@@ -13,6 +13,8 @@ interface CliOptions {
   initialCommand?: string;
   oneShot: boolean;
   workspace?: string;
+  /** Set when user passed --update (so stray args are rejected). */
+  explicitUpdate?: boolean;
 }
 
 function renderHelp(): void {
@@ -24,6 +26,7 @@ Usage:
 Options:
   --workspace <path>  Set the workspace for delegated commands
   --once              Run the initial command once and exit (headless)
+  --update            Update Cursor Agent to the latest version (same as /update)
   -h, --help          Show this help message
   -v, --version       Show the version
 
@@ -51,10 +54,21 @@ function parseCliArguments(
       continue;
     }
 
+    if (token === "--update") {
+      options.initialCommand = "/update";
+      options.explicitUpdate = true;
+      continue;
+    }
+
     if (token === "--workspace") {
       options.workspace = argv[index + 1];
       index += 1;
       continue;
+    }
+
+    if (options.explicitUpdate) {
+      console.error("crsr: unexpected arguments after --update");
+      process.exit(1);
     }
 
     options.initialCommand = argv.slice(index).join(" ");
