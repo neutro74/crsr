@@ -20,7 +20,7 @@ const wrapperPath = path.join(installDirectory, "crsr");
 mkdirSync(installDirectory, { recursive: true });
 writeFileSync(
   wrapperPath,
-  `#!/bin/sh\nexec node ${quoteForShell(bundlePath)} "$@"\n`,
+  `#!/bin/sh\nexport CRSR_INSTALL_PATH=${quoteForShell(wrapperPath)}\nexec node ${quoteForShell(bundlePath)} "$@"\n`,
   "utf8",
 );
 chmodSync(wrapperPath, 0o755);
