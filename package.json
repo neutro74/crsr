@@ -8,9 +8,9 @@
     "dev": "tsx src/main.tsx",
     "build": "tsc -p tsconfig.json",
     "bundle": "esbuild src/main.tsx --bundle --platform=node --format=cjs --external:blessed --outfile=dist/crsr.cjs",
-    "release": "npm run bundle && printf '#!/bin/sh\\nexec node /home/davidc/.local/share/custom-cursor-shell/dist/crsr.cjs \"$@\"\\n' > ~/.local/bin/crsr && chmod +x ~/.local/bin/crsr",
+    "release": "npm run bundle && node scripts/install-local-release.mjs",
     "package:linux": "npm run bundle && mkdir -p release && pkg package.json --targets node18-linux-x64 --output release/crsr-linux-x64 --public-packages '*'",
-    "start": "node dist/main.js",
+    "start": "node dist/crsr.cjs",
     "check": "tsc --noEmit -p tsconfig.json"
   },
   "keywords": [

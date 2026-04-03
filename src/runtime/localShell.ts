@@ -7,8 +7,12 @@ const MAX_CAPTURE_BYTES = 64 * 1024;
 
 type StreamCallback = (event: StreamEvent) => void;
 
+function getCurrentSize(chunks: string[]): number {
+  return chunks.reduce((total, item) => total + item.length, 0);
+}
+
 function appendWithLimit(chunks: string[], chunk: string): void {
-  const currentSize = chunks.reduce((total, item) => total + item.length, 0);
+  const currentSize = getCurrentSize(chunks);
   if (currentSize >= MAX_CAPTURE_BYTES) {
     return;
   }
@@ -50,7 +54,7 @@ export async function runLocalShellCommand(
 
     child.stdout.on("data", (chunk: Buffer | string) => {
       const text = chunk.toString();
-      const before = stdoutChunks.reduce((total, item) => total + item.length, 0);
+      const before = getCurrentSize(stdoutChunks);
       appendWithLimit(stdoutChunks, text);
       if (!stdoutTruncated && before + text.length > MAX_CAPTURE_BYTES) {
         stdoutTruncated = true;
@@ -60,7 +64,7 @@ export async function runLocalShellCommand(
 
     child.stderr.on("data", (chunk: Buffer | string) => {
       const text = chunk.toString();
-      const before = stderrChunks.reduce((total, item) => total + item.length, 0);
+      const before = getCurrentSize(stderrChunks);
       appendWithLimit(stderrChunks, text);
       if (!stderrTruncated && before + text.length > MAX_CAPTURE_BYTES) {
         stderrTruncated = true;

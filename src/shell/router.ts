@@ -79,6 +79,14 @@ function tokenize(input: string): string[] {
     current += character;
   }
 
+  if (escaping) {
+    current += "\\";
+  }
+
+  if (quote) {
+    current = `${quote}${current}`;
+  }
+
   if (current.length > 0) {
     tokens.push(current);
   }

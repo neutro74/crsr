@@ -194,12 +194,14 @@ npm install
 npm run release
 ```
 
-That installs a local `crsr` launcher in `~/.local/bin/crsr`.
+That bundles `dist/crsr.cjs` and installs a local `crsr` launcher in
+`~/.local/bin/crsr` that points at the current repository checkout.
 
 You can also run from source:
 
 ```bash
 npm run dev
+npm start
 ```
 
 ## Standalone Binary

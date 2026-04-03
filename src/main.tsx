@@ -1,5 +1,8 @@
 #!/usr/bin/env node
+import { readFileSync } from "node:fs";
 import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { loadShellConfig } from "./config/config.js";
 import { renderCommandResult } from "./output/renderers.js";
 import { CursorAgentAdapter } from "./runtime/cursorAgent.js";
@@ -13,6 +16,38 @@ interface CliOptions {
   oneShot: boolean;
   workspace?: string;
 }
+
+type CliParseResult =
+  | CliOptions
+  | "help"
+  | "version"
+  | { error: string };
+
+const FALLBACK_VERSION = "0.2.0";
+
+function getCliVersion(): string {
+  try {
+    const entryDir = path.dirname(fileURLToPath(import.meta.url));
+    const packageJsonPath = path.resolve(entryDir, "..", "package.json");
+    const rawPackageJson = readFileSync(packageJsonPath, "utf8");
+    const parsedPackageJson = JSON.parse(rawPackageJson) as {
+      version?: unknown;
+    };
+    if (
+      typeof parsedPackageJson.version === "string" &&
+      parsedPackageJson.version.trim().length > 0
+    ) {
+      return parsedPackageJson.version;
+    }
+  } catch {
+    // Fall back to the version bundled at build time when package.json is unavailable.
+  }
+
+  return FALLBACK_VERSION;
+}
+
+const CLI_VERSION = getCliVersion();
+const CLI_FLAGS = new Set(["--help", "-h", "--version", "-v", "--once", "--workspace"]);
 
 function renderHelp(): void {
   console.log(`crsr - terminal wrapper for cursor-agent
@@ -32,16 +67,19 @@ Run 'crsr --once /help' to see all interactive commands.
 }
 
 function renderVersion(): void {
-  console.log("crsr 0.2.0");
+  console.log(`crsr ${CLI_VERSION}`);
 }
 
 function parseCliArguments(
   argv: string[],
-): CliOptions | "help" | "version" {
+): CliParseResult {
   const options: CliOptions = { oneShot: false };
 
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
+    if (!token) {
+      continue;
+    }
     if (token === "--help" || token === "-h") return "help";
     if (token === "--version" || token === "-v") return "version";
 
@@ -50,8 +88,21 @@ function parseCliArguments(
       continue;
     }
 
+    if (token.startsWith("--workspace=")) {
+      const workspace = token.slice("--workspace=".length);
+      if (workspace.length === 0) {
+        return { error: "--workspace requires a path." };
+      }
+      options.workspace = workspace;
+      continue;
+    }
+
     if (token === "--workspace") {
-      options.workspace = argv[index + 1];
+      const workspace = argv[index + 1];
+      if (!workspace || CLI_FLAGS.has(workspace)) {
+        return { error: "--workspace requires a path." };
+      }
+      options.workspace = workspace;
       index += 1;
       continue;
     }
@@ -136,6 +187,11 @@ if (cliOptions === "help") {
 if (cliOptions === "version") {
   renderVersion();
   process.exit(0);
+}
+
+if ("error" in cliOptions) {
+  console.error(cliOptions.error);
+  process.exit(1);
 }
 
 const config = loadShellConfig();
