@@ -132,6 +132,7 @@ async function runOneShotCommand(
 
       return result.exitCode;
     }
+    case "open-settings":
     case "tab-action":
       return 0;
     case "terminal":

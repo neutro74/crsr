@@ -998,6 +998,11 @@ export async function runApp({
         return;
       }
 
+      if (outcome.kind === "open-settings") {
+        openSettings();
+        return;
+      }
+
       if (outcome.kind === "tab-action") {
         if (outcome.action === "new") { newTab(); return; }
         if (outcome.action === "close") { closeTab(); return; }
@@ -1117,6 +1122,16 @@ export async function runApp({
     if (settingsOpen) {
       if (key.name === "c" && key.ctrl) { destroy(); return; }
       handleSettingsKey(ch, key);
+      return;
+    }
+
+    // Global overlay shortcuts — handled here (screen.key may be blocked by some terminals)
+    if (key.name === "p" && key.ctrl && !paletteOpen && !settingsOpen) {
+      openPalette();
+      return;
+    }
+    if ((key.name === "f2" || key.full === "f2") && !paletteOpen && !settingsOpen) {
+      openSettings();
       return;
     }
 

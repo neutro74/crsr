@@ -22,6 +22,7 @@ export type RouteOutcome =
   | { kind: "noop" }
   | { kind: "clear" }
   | { kind: "exit" }
+  | { kind: "open-settings" }
   | { kind: "message"; title: string; body: string }
   | { kind: "tab-action"; action: "new" | "close" | "switch"; index?: number }
   | { kind: "terminal"; program: string; args: string[]; cwd: string }
@@ -576,6 +577,9 @@ export class ShellRouter {
           cwd,
         };
       }
+
+      case "settings":
+        return { kind: "open-settings" };
 
       case "compress":
         return {
