@@ -20,13 +20,17 @@ It gives Cursor Agent a dedicated TUI with persistent session state, slash comma
 
 ![crsr launch screen](docs/assets/launch-screen.png)
 
+### Agent response
+
+![crsr agent response](docs/assets/agent-response.png)
+
 ### Shell mode
 
 ![crsr shell mode](docs/assets/shell-mode.png)
 
-### Agent response
+### Settings panel
 
-![crsr agent response](docs/assets/agent-response.png)
+![crsr settings panel](docs/assets/settings-panel.png)
 
 ## Core Features
 
