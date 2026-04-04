@@ -2,7 +2,9 @@
 
 `crsr` is a full-screen terminal shell for `cursor-agent`.
 
-It gives Cursor Agent a dedicated TUI with persistent session state, slash commands, local shell mode, workspace switching, and a cleaner "stay in the terminal" workflow for both interactive use and one-shot automation.
+It gives Cursor Agent a dedicated TUI with persistent session state, slash commands, local shell mode, workspace switching, and a cleaner “stay in the terminal” workflow for both interactive use and one-shot automation.
+
+**Latest release:** [v1.0.0](https://github.com/neutro74/crsr/releases/tag/v1.0.0) (`crsr --version` should print `1.0.0` when built from this tag).
 
 ## What crsr Does
 
@@ -12,25 +14,33 @@ It gives Cursor Agent a dedicated TUI with persistent session state, slash comma
 - Adds local shell mode with `!command` so you can run terminal commands inline.
 - Exposes common `cursor-agent` features as slash commands instead of raw flags.
 - Supports MCP management, chat resume/continue flows, cloud mode, and worktrees.
-- Can be installed as a normal local wrapper or packaged as a standalone Linux binary.
+- **Tabs:** multiple conversations at once (`Ctrl+T` / `Ctrl+W`, `Alt+1-9` to jump, `Alt+n` / `Alt+p` to cycle).
+- **Themes:** built-in palettes (e.g. dark, Dracula, Nord, Gruvbox, Catppuccin); change with `/theme` or the Settings panel.
+- **Command palette:** fuzzy search all commands (`Ctrl+P`).
+- **Settings panel:** edit session options without memorizing slash commands (`/settings`).
+- **Vim-style bindings:** optional (`/vim`): transcript scroll, ESC normal mode, `i` / Enter back to insert.
+- **Neovim:** `/nvim [file]` suspends the TUI and opens Neovim in the workspace.
+- Install as a local Node wrapper from this repo, or use **standalone binaries** from GitHub Releases (Linux, macOS, Windows x64).
 
 ## Screenshots
 
+Filenames use a `readme-` prefix so GitHub does not keep serving older images under the previous paths.
+
 ### Launch screen
 
-![crsr launch screen](docs/assets/launch-screen.png)
+![crsr launch screen](docs/assets/readme-launch.png)
 
 ### Agent response
 
-![crsr agent response](docs/assets/agent-response.png)
+![crsr agent response](docs/assets/readme-agent-response.png)
 
 ### Shell mode
 
-![crsr shell mode](docs/assets/shell-mode.png)
+![crsr shell mode](docs/assets/readme-shell-mode.png)
 
 ### Settings panel
 
-![crsr settings panel](docs/assets/settings-panel.png)
+![crsr settings panel](docs/assets/readme-settings-panel.png)
 
 ## Core Features
 
@@ -40,6 +50,21 @@ It gives Cursor Agent a dedicated TUI with persistent session state, slash comma
 - Conversation transcript with timestamps and tone labels.
 - Input history navigation and slash-command autocomplete.
 - Markdown-aware rendering for agent responses.
+
+### Tabs
+
+- `Ctrl+T` new tab, `Ctrl+W` close tab (not the last tab).
+- `Alt+1` … `Alt+9` jump to tab by index; `Alt+n` / `Alt+p` next/previous tab.
+- `/tab [new|close|<n>]` for the same actions from the prompt.
+
+### Themes and settings
+
+- `/theme <name>` or open **Settings** with `/settings` to change theme, mode, force, sandbox, MCP approval, vim bindings, and more.
+- Arrow keys navigate settings; left/right or Enter adjusts values; Esc closes.
+
+### Command palette
+
+- `Ctrl+P` opens a searchable list of all slash commands; Enter inserts the chosen usage into the prompt.
 
 ### Prompting modes
 
@@ -144,7 +169,7 @@ Options:
 
 - `--workspace <path>`: start in a specific workspace
 - `--once`: run one prompt or command headlessly, then exit
-- `--update`: download the latest GitHub release binary and replace the current `crsr` executable
+- `--update`: download the latest GitHub release binary and replace the current `crsr` executable (see limitations below)
 - `-h`, `--help`: show help
 - `-v`, `--version`: show version
 
@@ -186,56 +211,98 @@ Global config lives at `~/.config/crsr/config.json` and supports:
 3. `~/.local/bin/cursor-agent`
 4. `cursor-agent` on `PATH`
 
-## Install and Run
+## Install and run (from source)
 
 Requirements:
 
 - Node.js 18+
 - a working `cursor-agent` installation
 
-Install dependencies and install the local wrapper:
-
 ```bash
+git clone https://github.com/neutro74/crsr.git
+cd crsr
 npm install
-npm run release
 ```
 
-That bundles the app and installs a local `crsr` launcher in `~/.local/bin/crsr`
-which points at this checkout's `dist/crsr.cjs`.
-
-You can also run from source:
+Run in development (TypeScript via `tsx`):
 
 ```bash
 npm run dev
 ```
 
-## Standalone Binary
+Install a local launcher script into `~/.local/bin/crsr` that runs the bundled app from this checkout:
 
-crsr can also be packaged as a self-contained Linux binary:
+```bash
+npm run release
+```
+
+That runs `npm run bundle` and `scripts/install-local-wrapper.mjs`, producing `dist/crsr.cjs` and wiring the wrapper to it.
+
+Type-check only:
+
+```bash
+npm run check
+```
+
+Compile TypeScript to `dist/` (without bundling the single file):
+
+```bash
+npm run build
+```
+
+## Standalone binaries (GitHub Releases)
+
+Prebuilt x64 executables are attached to each release. For **v1.0.0** the assets are:
+
+| Platform | Asset name |
+|----------|------------|
+| Linux x64 | `crsr-linux-x64` |
+| macOS x64 | `crsr-macos-x64` |
+| Windows x64 | `crsr-win-x64.exe` |
+
+Download from the [Releases](https://github.com/neutro74/crsr/releases) page, mark the binary executable on Unix (`chmod +x`), and ensure `cursor-agent` is available per the resolution order above.
+
+These are CLI binaries (not macOS `.app` bundles); run them from a terminal.
+
+## Build standalone binaries locally
+
+From a clean checkout with dependencies installed:
+
+**Linux x64 only** (matches `package:linux`):
 
 ```bash
 npm run package:linux
 ```
 
-This produces:
+Output: `release/crsr-linux-x64`
 
-```text
-release/crsr-linux-x64
+**Linux, macOS, and Windows x64 in one step** (same targets as the release pipeline):
+
+```bash
+npm run bundle
+mkdir -p release
+npx pkg package.json \
+  --targets node18-linux-x64,node18-win-x64,node18-macos-x64 \
+  --out-path release \
+  --public-packages '*'
+mv -f release/crsr-linux release/crsr-linux-x64
+mv -f release/crsr-macos release/crsr-macos-x64
+mv -f release/crsr-win.exe release/crsr-win-x64.exe
 ```
 
-That artifact is the standalone binary you can attach to a GitHub release.
+`pkg` may emit bytecode warnings for some dependencies; the executables should still run.
 
-Installed standalone binaries and locally installed wrappers can self-update with:
+## Self-update (`--update`)
 
 ```bash
 crsr --update
 ```
 
-The updater currently targets the Linux x64 release asset published on GitHub and
-replaces the active `crsr` executable in place.
+This downloads the **latest** GitHub release and replaces the running `crsr` binary when it can determine the install path (packaged binary, or `CRSR_INSTALL_PATH`, or `~/.local/bin/crsr` from the wrapper install).
 
-## Release Notes
+**Current limitation:** the updater looks for the Linux x64 asset named `crsr-linux-x64`. Windows and macOS self-update is not implemented yet; use the release assets manually on those platforms.
 
-- The current release version is `0.3.0`.
-- `npm run prepare:version` syncs `src/version.ts` from `package.json` so the CLI
-  version output, bundled wrapper, and packaged binary stay aligned.
+## Release versioning
+
+- Release tags (for example `v1.0.0`) correspond to [GitHub Releases](https://github.com/neutro74/crsr/releases).
+- `npm run prepare:version` syncs `src/version.ts` from `package.json`, so `crsr -v`, the bundled wrapper, and `pkg` output stay aligned. Release builds should run `npm run bundle` (or a script that runs `prepare:version` first) before packaging.
