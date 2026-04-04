@@ -3,7 +3,7 @@ import test from "node:test";
 import {
   normalizeInitialCommand,
   parseCliArguments,
-} from "../src/main.tsx";
+} from "../src/cli.ts";
 
 test("parseCliArguments supports --workspace=<path> and preserves remaining command", () => {
   const result = parseCliArguments([
