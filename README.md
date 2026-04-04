@@ -24,7 +24,6 @@ It gives Cursor Agent a dedicated TUI with persistent session state, slash comma
 
 ## Screenshots
 
-Filenames use a `readme-` prefix so GitHub does not keep serving older images under the previous paths.
 
 ### Launch screen
 
