@@ -26,13 +26,28 @@ interface ProcessWithPkg extends NodeJS.Process {
   pkg?: unknown;
 }
 
-function getReleaseAssetName(): string {
-  if (process.platform === "linux" && process.arch === "x64") {
+/**
+ * GitHub release asset filenames (see `npm run package:linux` / multi-target `pkg` in README).
+ */
+export function getReleaseAssetName(): string {
+  const { platform, arch } = process;
+
+  if (platform === "linux" && arch === "x64") {
     return "crsr-linux-x64";
   }
 
+  if (platform === "darwin" && (arch === "x64" || arch === "arm64")) {
+    // Single macOS build is x64; Apple Silicon runs it under Rosetta when needed.
+    return "crsr-macos-x64";
+  }
+
+  if (platform === "win32" && arch === "x64") {
+    return "crsr-win-x64.exe";
+  }
+
   throw new Error(
-    `--update is only available for Linux x64 builds right now (current platform: ${process.platform}-${process.arch}).`,
+    `No GitHub release binary for this platform (${platform}-${arch}). ` +
+      "Supported: linux-x64, darwin-x64|arm64, win32-x64.",
   );
 }
 
@@ -104,9 +119,12 @@ async function replaceInstalledBinary(
   digest: string | undefined,
 ): Promise<void> {
   const parentDirectory = path.dirname(targetPath);
+  const isWindows = process.platform === "win32";
+  const safeBase = assetName.replace(/\.exe$/i, "").replace(/[^a-zA-Z0-9._-]+/g, "_");
+  const tempSuffix = isWindows ? ".exe" : "";
   const temporaryPath = path.join(
     parentDirectory,
-    `.${assetName}.download-${process.pid}-${Date.now()}`,
+    `.${safeBase}.download-${process.pid}-${Date.now()}${tempSuffix}`,
   );
 
   await mkdir(parentDirectory, { recursive: true });
@@ -130,8 +148,12 @@ async function replaceInstalledBinary(
 
     const binaryData = Buffer.from(await response.arrayBuffer());
     verifyDigest(binaryData, digest);
-    await writeFile(temporaryPath, binaryData, { mode: 0o755 });
-    await chmod(temporaryPath, 0o755);
+    await writeFile(temporaryPath, binaryData, {
+      mode: isWindows ? 0o666 : 0o755,
+    });
+    if (!isWindows) {
+      await chmod(temporaryPath, 0o755);
+    }
     await rename(temporaryPath, targetPath);
   } finally {
     await rm(temporaryPath, { force: true }).catch(() => undefined);

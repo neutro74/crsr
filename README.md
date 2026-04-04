@@ -291,15 +291,38 @@ mv -f release/crsr-win.exe release/crsr-win-x64.exe
 
 `pkg` may emit bytecode warnings for some dependencies; the executables should still run.
 
-## Self-update (`--update`)
+## Self-update (`--update` and `/crsr-update`)
 
 ```bash
 crsr --update
 ```
 
-This downloads the **latest** GitHub release and replaces the running `crsr` binary when it can determine the install path (packaged binary, or `CRSR_INSTALL_PATH`, or `~/.local/bin/crsr` from the wrapper install).
+From the TUI you can run:
 
-**Current limitation:** the updater looks for the Linux x64 asset named `crsr-linux-x64`. Windows and macOS self-update is not implemented yet; use the release assets manually on those platforms.
+```text
+/crsr-update
+```
+
+(`/update` still delegates to `cursor-agent` and updates the agent, not crsr.)
+
+The updater downloads the **latest** GitHub release and replaces the active `crsr` executable when it can resolve the install path:
+
+- **Packaged binary:** `process.execPath` (standalone `pkg` builds).
+- **`CRSR_INSTALL_PATH`:** explicit path to the launcher or binary to replace.
+- **Wrapper install:** `~/.local/bin/crsr` from `npm run release` (Unix-like systems).
+
+**Platform → release asset:**
+
+| OS | Node `process` | Asset |
+|----|----------------|--------|
+| Linux x64 | `linux` + `x64` | `crsr-linux-x64` |
+| macOS Intel | `darwin` + `x64` | `crsr-macos-x64` |
+| macOS Apple Silicon | `darwin` + `arm64` | `crsr-macos-x64` (x64 build; Rosetta if needed) |
+| Windows x64 | `win32` + `x64` | `crsr-win-x64.exe` |
+
+Other platforms (for example Linux arm64) have no matching release asset yet; self-update will report an error.
+
+On Windows, replacing a file that is still running can fail; quit `crsr` and run `crsr --update` from another terminal if you hit a file-lock error.
 
 ## Release versioning
 

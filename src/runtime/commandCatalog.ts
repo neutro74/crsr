@@ -28,6 +28,7 @@ export const shellCommands: CommandDefinition[] = [
   { name: "config", description: "Show current session configuration.", category: "shell", usage: "/config" },
   { name: "raw", description: "Forward arguments directly to cursor-agent.", category: "shell", usage: "/raw <args...>" },
   { name: "settings", description: "Open the interactive settings panel.", category: "shell", usage: "/settings" },
+  { name: "crsr-update", description: "Download the latest crsr binary from GitHub and replace this install.", category: "shell", usage: "/crsr-update" },
   { name: "theme", description: "Set color theme: dark, dracula, nord, gruvbox, catppuccin.", category: "shell", usage: "/theme [name]" },
   { name: "vim", description: "Toggle vim keybindings (j/k scroll, ESC to normal mode).", category: "shell", usage: "/vim" },
   { name: "tab", description: "Manage tabs: new, close, switch.", category: "shell", usage: "/tab [new|close|<n>]" },

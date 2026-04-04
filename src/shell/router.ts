@@ -23,6 +23,7 @@ export type RouteOutcome =
   | { kind: "clear" }
   | { kind: "exit" }
   | { kind: "open-settings" }
+  | { kind: "self-update" }
   | { kind: "message"; title: string; body: string }
   | { kind: "tab-action"; action: "new" | "close" | "switch"; index?: number }
   | { kind: "terminal"; program: string; args: string[]; cwd: string }
@@ -580,6 +581,9 @@ export class ShellRouter {
 
       case "settings":
         return { kind: "open-settings" };
+
+      case "crsr-update":
+        return { kind: "self-update" };
 
       case "compress":
         return {

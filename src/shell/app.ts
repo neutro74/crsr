@@ -9,6 +9,7 @@ import type { SessionSnapshot, SessionStore } from "../session/sessionStore.js";
 import { asciiLogoFrames } from "./generatedLogoFrames.js";
 import { getTheme, nextThemeId, prevThemeId, THEMES, type Theme } from "./themes.js";
 import { ShellRouter } from "./router.js";
+import { runSelfUpdate } from "../update.js";
 
 type EntryTone = "system" | "command" | "stdout" | "stderr" | "partial";
 
@@ -1025,6 +1026,29 @@ export async function runApp({
 
       if (outcome.kind === "open-settings") {
         openSettings();
+        return;
+      }
+
+      if (outcome.kind === "self-update") {
+        tab.busy = true;
+        renderUi();
+        try {
+          await runSelfUpdate();
+          pushEntry(
+            tab.entries,
+            "system",
+            "Self-update finished. Restart crsr to run the new binary.",
+          );
+          tab.statusLine = "updated";
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Self-update failed";
+          pushEntry(tab.entries, "stderr", message);
+          tab.statusLine = "error";
+        } finally {
+          tab.busy = false;
+        }
+        refreshSnapshot();
+        renderUi();
         return;
       }
 

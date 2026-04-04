@@ -103,6 +103,9 @@ async function runOneShotCommand(
     case "message":
       console.log(`${outcome.title}\n${outcome.body}`);
       return 0;
+    case "self-update":
+      await runSelfUpdate();
+      return 0;
     case "run": {
       let wroteStdout = false;
       const result = await outcome.execute((event) => {
