@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { loadShellConfig } from "./config/config.js";
 import { renderCommandResult } from "./output/renderers.js";
 import { CursorAgentAdapter } from "./runtime/cursorAgent.js";
@@ -9,12 +11,18 @@ import { createSessionStore } from "./session/sessionStore.js";
 import { runSelfUpdate } from "./update.js";
 import { APP_NAME, APP_VERSION } from "./version.js";
 
-interface CliOptions {
+export interface CliOptions {
   initialCommand?: string;
   oneShot: boolean;
   update: boolean;
   workspace?: string;
 }
+
+export type CliParseResult =
+  | CliOptions
+  | "help"
+  | "version"
+  | { error: string };
 
 function renderHelp(): void {
   console.log(`crsr - terminal wrapper for cursor-agent
@@ -29,6 +37,7 @@ Options:
   -h, --help          Show this help message
   -v, --version       Show the version
 
+Use -- to stop option parsing before an initial command that starts with -.
 Interactive commands start with /. Plain text sends a prompt.
 Run 'crsr --once /help' to see all interactive commands.
 `);
@@ -38,13 +47,22 @@ function renderVersion(): void {
   console.log(`${APP_NAME} ${APP_VERSION}`);
 }
 
-function parseCliArguments(
+export function parseCliArguments(
   argv: string[],
-): CliOptions | "help" | "version" {
+): CliParseResult {
   const options: CliOptions = { oneShot: false, update: false };
 
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
+    if (!token) {
+      continue;
+    }
+
+    if (token === "--") {
+      options.initialCommand = argv.slice(index + 1).join(" ");
+      break;
+    }
+
     if (token === "--help" || token === "-h") return "help";
     if (token === "--version" || token === "-v") return "version";
 
@@ -59,9 +77,28 @@ function parseCliArguments(
     }
 
     if (token === "--workspace") {
-      options.workspace = argv[index + 1];
+      const workspace = argv[index + 1];
+      if (!workspace || workspace === "--") {
+        return { error: "--workspace requires a path." };
+      }
+      options.workspace = workspace;
       index += 1;
       continue;
+    }
+
+    if (token.startsWith("--workspace=")) {
+      const workspace = token.slice("--workspace=".length).trim();
+      if (workspace.length === 0) {
+        return { error: "--workspace requires a path." };
+      }
+      options.workspace = workspace;
+      continue;
+    }
+
+    if (token.startsWith("-")) {
+      return {
+        error: `Unknown option "${token}". Run "crsr --help" to see supported flags.`,
+      };
     }
 
     options.initialCommand = argv.slice(index).join(" ");
@@ -71,19 +108,21 @@ function parseCliArguments(
   return options;
 }
 
-function normalizeInitialCommand(
+export function normalizeInitialCommand(
   initialCommand: string | undefined,
 ): string | undefined {
   if (!initialCommand) return undefined;
-  if (initialCommand.startsWith("/")) return initialCommand;
+  const trimmedCommand = initialCommand.trim();
+  if (trimmedCommand.length === 0) return undefined;
+  if (trimmedCommand.startsWith("/")) return trimmedCommand;
 
-  const firstToken = initialCommand.trim().split(/\s+/u)[0];
+  const firstToken = trimmedCommand.split(/\s+/u)[0];
   const knownNames = new Set([
     ...allCommands.map((command) => command.name.split(" ")[0]),
     "mcp",
   ]);
 
-  return knownNames.has(firstToken) ? `/${initialCommand}` : initialCommand;
+  return knownNames.has(firstToken) ? `/${trimmedCommand}` : initialCommand;
 }
 
 async function runOneShotCommand(
@@ -140,29 +179,47 @@ async function runOneShotCommand(
   }
 }
 
-const cliOptions = parseCliArguments(process.argv.slice(2));
-if (cliOptions === "help") {
-  renderHelp();
-  process.exit(0);
+function reportFatalError(error: unknown): void {
+  const message =
+    error instanceof Error ? error.stack ?? error.message : String(error);
+  process.stderr.write(`${message}\n`);
 }
 
-if (cliOptions === "version") {
-  renderVersion();
-  process.exit(0);
+function isEntrypoint(metaUrl: string): boolean {
+  const entryPath = process.argv[1];
+  if (!entryPath) {
+    return false;
+  }
+
+  try {
+    return fileURLToPath(metaUrl) === path.resolve(entryPath);
+  } catch {
+    return false;
+  }
 }
 
-if (cliOptions.update) {
-  void runSelfUpdate()
-    .then(() => {
-      process.exit(0);
-    })
-    .catch((error: unknown) => {
-      const message =
-        error instanceof Error ? error.stack ?? error.message : String(error);
-      process.stderr.write(`${message}\n`);
-      process.exit(1);
-    });
-} else {
+export async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
+  const cliOptions = parseCliArguments(argv);
+  if (cliOptions === "help") {
+    renderHelp();
+    return 0;
+  }
+
+  if (cliOptions === "version") {
+    renderVersion();
+    return 0;
+  }
+
+  if ("error" in cliOptions) {
+    process.stderr.write(`${cliOptions.error}\n`);
+    return 1;
+  }
+
+  if (cliOptions.update) {
+    await runSelfUpdate();
+    return 0;
+  }
+
   const config = loadShellConfig();
   const initialWorkspace = cliOptions.workspace ?? config.workspace;
   const store = createSessionStore(config.paths, initialWorkspace, {
@@ -186,33 +243,33 @@ if (cliOptions.update) {
     cliOptions.initialCommand,
   );
 
-  void (async () => {
-    if (cliOptions.oneShot) {
-      if (!normalizedInitialCommand) {
-        console.error("--once requires an initial command or prompt.");
-        process.exit(1);
-      }
-
-      const exitCode = await runOneShotCommand(
-        normalizedInitialCommand,
-        adapter,
-        store,
-        config,
-      );
-      process.exit(exitCode);
+  if (cliOptions.oneShot) {
+    if (!normalizedInitialCommand) {
+      process.stderr.write("--once requires an initial command or prompt.\n");
+      return 1;
     }
 
-    await runApp({
-      config,
-      adapter,
-      store,
-      initialCommand: normalizedInitialCommand,
-      oneShot: cliOptions.oneShot,
-    });
-  })().catch((error: unknown) => {
-    const message =
-      error instanceof Error ? error.stack ?? error.message : String(error);
-    process.stderr.write(`${message}\n`);
-    process.exit(1);
+    return runOneShotCommand(normalizedInitialCommand, adapter, store, config);
+  }
+
+  await runApp({
+    config,
+    adapter,
+    store,
+    initialCommand: normalizedInitialCommand,
+    oneShot: cliOptions.oneShot,
   });
+  return 0;
+}
+
+if (isEntrypoint(import.meta.url)) {
+  void main().then(
+    (exitCode) => {
+      process.exit(exitCode);
+    },
+    (error: unknown) => {
+      reportFatalError(error);
+      process.exit(1);
+    },
+  );
 }

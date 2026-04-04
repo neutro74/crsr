@@ -138,19 +138,22 @@ crsr [options] [initial command or prompt...]
 
 Options:
 
-- `--workspace <path>`: start in a specific workspace
+- `--workspace <path>` or `--workspace=<path>`: start in a specific workspace
 - `--once`: run one prompt or command headlessly, then exit
 - `--update`: download the latest GitHub release binary and replace the current `crsr` executable
 - `-h`, `--help`: show help
 - `-v`, `--version`: show version
+- `--`: stop option parsing before an initial command that starts with `-`
 
 Examples:
 
 ```bash
 crsr
 crsr --workspace ~/project
+crsr --workspace=~/project --once /status
 crsr --once "summarize this repository"
 crsr --once /status
+crsr --once -- --help
 crsr --once '!pwd'
 crsr --update
 ```
@@ -193,6 +196,7 @@ Install dependencies and install the local wrapper:
 
 ```bash
 npm install
+npm test
 npm run release
 ```
 
@@ -232,6 +236,7 @@ replaces the active `crsr` executable in place.
 
 ## Release Notes
 
-- The current release version is `0.3.0`.
+- The current release version is `0.2.2`.
+- This patch improves CLI flag parsing, adds regression tests, and makes local shell execution safer across bash/fish/PowerShell/cmd-style environments.
 - `npm run prepare:version` syncs `src/version.ts` from `package.json` so the CLI
   version output, bundled wrapper, and packaged binary stay aligned.
