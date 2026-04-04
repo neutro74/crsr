@@ -562,7 +562,7 @@ export class ShellRouter {
         return {
           kind: "message",
           title: "Tab",
-          body: "Usage: /tab [new|close|<n>]  —  Ctrl+T new, Ctrl+W close, Alt+1-9 switch",
+          body: "Usage: /tab [new|close|<n>]  —  Ctrl+T new, Ctrl+W close, Alt+n/p switch, Alt+1-9 jump",
         };
       }
 

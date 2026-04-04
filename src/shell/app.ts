@@ -528,6 +528,9 @@ export async function runApp({
     border: "line",
     label: " Command Palette ",
     tags: true,
+    keys: true,
+    mouse: true,
+    clickable: true,
     style: {
       fg: theme.fg,
       bg: theme.bg,
@@ -547,6 +550,9 @@ export async function runApp({
     border: "line",
     label: " Settings ",
     tags: true,
+    keys: true,
+    mouse: true,
+    clickable: true,
     style: {
       fg: theme.fg,
       bg: theme.bg,
@@ -565,7 +571,7 @@ export async function runApp({
   pushEntry(
     activeTab().entries,
     "system",
-    `crsr ready — workspace: ${contractHome(store.getSnapshot().activeWorkspace ?? os.homedir())}\nType a prompt, /help for commands, Ctrl+P for palette, F2 for settings.`,
+    `crsr ready — workspace: ${contractHome(store.getSnapshot().activeWorkspace ?? os.homedir())}\nType a prompt, /help for commands, Ctrl+P for palette, /settings for settings.`,
   );
 
   function refreshSnapshot(): void {
@@ -585,6 +591,17 @@ export async function runApp({
     inputBox.clearValue();
   }
 
+  function stopTextboxCapture(): void {
+    const textbox = inputBox as blessed.Widgets.TextboxElement & {
+      _reading?: boolean;
+      _done?: (err?: string | null, value?: string | null) => void;
+    };
+
+    if (textbox._reading && textbox._done) {
+      textbox._done("stop", null);
+    }
+  }
+
   // ─── Tab bar rendering ───────────────────────────────────────────────────
   function renderTabBar(): void {
     const parts: string[] = [];
@@ -599,7 +616,7 @@ export async function runApp({
         parts.push(`{${theme.tabFg}-fg}[${label}]{/}`);
       }
     }
-    const hint = `{${theme.dim}-fg}  Ctrl+T new  Ctrl+W close  Alt+n switch{/}`;
+    const hint = `{${theme.dim}-fg}  Ctrl+T new  Ctrl+W close  Alt+n/p switch  Alt+1-9 jump{/}`;
     tabBar.setContent(parts.join("") + hint);
   }
 
@@ -654,16 +671,17 @@ export async function runApp({
     paletteQuery = "";
     paletteSelectedIndex = 0;
     renderPaletteContent();
+    stopTextboxCapture();
+    screen.saveFocus();
     paletteBox.show();
-    (screen as unknown as { lockKeys: boolean }).lockKeys = true;
+    paletteBox.focus();
     screen.render();
   }
 
   function closePalette(): void {
     paletteOpen = false;
     paletteBox.hide();
-    (screen as unknown as { lockKeys: boolean }).lockKeys = false;
-    inputBox.focus();
+    screen.restoreFocus();
     screen.render();
   }
 
@@ -743,22 +761,23 @@ export async function runApp({
     settingsOpen = true;
     settingsSelectedIndex = 0;
     renderSettingsContent();
+    stopTextboxCapture();
+    screen.saveFocus();
     settingsBox.show();
-    (screen as unknown as { lockKeys: boolean }).lockKeys = true;
+    settingsBox.focus();
     screen.render();
   }
 
   function closeSettings(): void {
     settingsOpen = false;
     settingsBox.hide();
-    (screen as unknown as { lockKeys: boolean }).lockKeys = false;
     refreshSnapshot();
-    inputBox.focus();
+    screen.restoreFocus();
     renderUi();
   }
 
   function handleSettingsKey(_ch: string | null, key: { name: string }): void {
-    if (key.name === "escape" || key.name === "f2") {
+    if (key.name === "escape") {
       closeSettings();
       return;
     }
@@ -799,6 +818,12 @@ export async function runApp({
     activeTabIndex = index;
     autoScroll = true;
     renderUi();
+  }
+
+  function switchTabRelative(direction: 1 | -1): void {
+    if (tabs.length <= 1) return;
+    const nextIndex = (activeTabIndex + direction + tabs.length) % tabs.length;
+    switchToTab(nextIndex);
   }
 
   function newTab(): void {
@@ -892,7 +917,7 @@ export async function runApp({
       return shorten("shell mode   enter run command   use cd && ... to change directories", width);
     }
 
-    return shorten("enter run   !cmd shell   ↑↓ history   ctrl+p palette   f2 settings   ctrl+t tab", width);
+    return shorten("enter run   !cmd shell   ↑↓ history   ctrl+p palette   /settings   ctrl+t tab   alt+n/p switch", width);
   }
 
   // ─── Main render ──────────────────────────────────────────────────────────
@@ -1078,7 +1103,9 @@ export async function runApp({
       activeTab().busy = false;
       refreshSnapshot();
       renderUi();
-      inputBox.focus();
+      if (!settingsOpen && !paletteOpen && !destroyed) {
+        inputBox.focus();
+      }
     }
   }
 
@@ -1125,13 +1152,17 @@ export async function runApp({
       return;
     }
 
-    // Global overlay shortcuts — handled here (screen.key may be blocked by some terminals)
+    // Global overlay shortcuts.
     if (key.name === "p" && key.ctrl && !paletteOpen && !settingsOpen) {
       openPalette();
       return;
     }
-    if ((key.name === "f2" || key.full === "f2") && !paletteOpen && !settingsOpen) {
-      openSettings();
+    if (key.meta && key.name === "n" && !paletteOpen && !settingsOpen) {
+      switchTabRelative(1);
+      return;
+    }
+    if (key.meta && key.name === "p" && !paletteOpen && !settingsOpen) {
+      switchTabRelative(-1);
       return;
     }
 
@@ -1184,12 +1215,6 @@ export async function runApp({
   screen.key(["C-p"], () => {
     if (!paletteOpen && !settingsOpen) openPalette();
     else if (paletteOpen) closePalette();
-  });
-
-  // Settings
-  screen.key(["f2"], () => {
-    if (!paletteOpen && !settingsOpen) openSettings();
-    else if (settingsOpen) closeSettings();
   });
 
   // Tabs
