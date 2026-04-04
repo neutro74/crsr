@@ -132,6 +132,11 @@ async function runOneShotCommand(
 
       return result.exitCode;
     }
+    case "tab-action":
+      return 0;
+    case "terminal":
+      console.error(`Cannot run terminal program "${outcome.program}" in headless mode.`);
+      return 1;
   }
 }
 

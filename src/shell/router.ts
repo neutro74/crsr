@@ -23,6 +23,8 @@ export type RouteOutcome =
   | { kind: "clear" }
   | { kind: "exit" }
   | { kind: "message"; title: string; body: string }
+  | { kind: "tab-action"; action: "new" | "close" | "switch"; index?: number }
+  | { kind: "terminal"; program: string; args: string[]; cwd: string }
   | {
       kind: "run";
       label: string;
@@ -504,6 +506,82 @@ export class ShellRouter {
         this.store.setResumeChatId(null);
         return {
           kind: "clear",
+        };
+
+      case "theme": {
+        if (args.length === 0) {
+          const current = this.store.getSnapshot().theme;
+          return {
+            kind: "message",
+            title: "Theme",
+            body: `Current theme: ${current}\nOptions: dark, dracula, nord, gruvbox, catppuccin\nUsage: /theme <name>`,
+          };
+        }
+        const validThemes = ["dark", "dracula", "nord", "gruvbox", "catppuccin"];
+        const themeName = args[0]!.toLowerCase();
+        if (!validThemes.includes(themeName)) {
+          return {
+            kind: "message",
+            title: "Theme",
+            body: `Unknown theme "${args[0]}". Options: ${validThemes.join(", ")}`,
+          };
+        }
+        this.store.setTheme(themeName);
+        return {
+          kind: "message",
+          title: "Theme",
+          body: `Theme set to ${themeName}.`,
+        };
+      }
+
+      case "vim": {
+        const next = !this.store.getSnapshot().vimMode;
+        this.store.setVimMode(next);
+        return {
+          kind: "message",
+          title: "Vim Mode",
+          body: next
+            ? "Vim mode ON. j/k scroll transcript, ESC to normal mode."
+            : "Vim mode OFF.",
+        };
+      }
+
+      case "tab": {
+        const sub = args[0];
+        if (!sub || sub === "new") {
+          return { kind: "tab-action", action: "new" };
+        }
+        if (sub === "close") {
+          return { kind: "tab-action", action: "close" };
+        }
+        const tabIndex = parseInt(sub, 10);
+        if (!isNaN(tabIndex) && tabIndex >= 1) {
+          return { kind: "tab-action", action: "switch", index: tabIndex - 1 };
+        }
+        return {
+          kind: "message",
+          title: "Tab",
+          body: "Usage: /tab [new|close|<n>]  —  Ctrl+T new, Ctrl+W close, Alt+1-9 switch",
+        };
+      }
+
+      case "nvim": {
+        const snapshot = this.store.getSnapshot();
+        const cwd = snapshot.activeWorkspace ?? process.cwd();
+        const file = args.length > 0 ? args.join(" ") : undefined;
+        return {
+          kind: "terminal",
+          program: "nvim",
+          args: file ? [file] : [],
+          cwd,
+        };
+      }
+
+      case "compress":
+        return {
+          kind: "message",
+          title: "Compress",
+          body: "Conversation compressed. (Context summarisation is applied automatically by the agent for long sessions.)",
         };
 
       case "raw":

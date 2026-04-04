@@ -12,6 +12,8 @@ interface PersistedSessionState {
   sandbox: "enabled" | "disabled" | null;
   approveMcps: boolean;
   customHeaders: string[];
+  theme: string;
+  vimMode: boolean;
 }
 
 interface TransientState {
@@ -39,6 +41,8 @@ const DEFAULT_STATE: PersistedSessionState = {
   sandbox: null,
   approveMcps: false,
   customHeaders: [],
+  theme: "dark",
+  vimMode: false,
 };
 
 function normalizeWorkspace(workspace: string): string {
@@ -72,6 +76,8 @@ export class SessionStore {
       sandbox: this.state.sandbox,
       approveMcps: this.state.approveMcps,
       customHeaders: [...this.state.customHeaders],
+      theme: this.state.theme,
+      vimMode: this.state.vimMode,
       apiKey: this.transient.apiKey,
       continueMode: this.transient.continueMode,
       resumeChatId: this.transient.resumeChatId,
@@ -163,6 +169,16 @@ export class SessionStore {
     this.transient.resumeChatId = id;
   }
 
+  public setTheme(theme: string): void {
+    this.state.theme = theme;
+    this.save();
+  }
+
+  public setVimMode(value: boolean): void {
+    this.state.vimMode = value;
+    this.save();
+  }
+
   private load(initialWorkspace?: string): PersistedSessionState {
     if (existsSync(this.sessionFile)) {
       try {
@@ -212,6 +228,8 @@ export class SessionStore {
                 (entry): entry is string => typeof entry === "string",
               )
             : [],
+          theme: typeof parsed.theme === "string" ? parsed.theme : "dark",
+          vimMode: parsed.vimMode === true,
         };
       } catch {
         return {

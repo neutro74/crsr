@@ -27,6 +27,11 @@ export const shellCommands: CommandDefinition[] = [
   { name: "new-chat", description: "Clear transcript state and start fresh prompts.", category: "shell", usage: "/new-chat" },
   { name: "config", description: "Show current session configuration.", category: "shell", usage: "/config" },
   { name: "raw", description: "Forward arguments directly to cursor-agent.", category: "shell", usage: "/raw <args...>" },
+  { name: "theme", description: "Set color theme: dark, dracula, nord, gruvbox, catppuccin.", category: "shell", usage: "/theme [name]" },
+  { name: "vim", description: "Toggle vim keybindings (j/k scroll, ESC to normal mode).", category: "shell", usage: "/vim" },
+  { name: "tab", description: "Manage tabs: new, close, switch.", category: "shell", usage: "/tab [new|close|<n>]" },
+  { name: "nvim", description: "Open Neovim in the active workspace (suspends crsr TUI).", category: "shell", usage: "/nvim [file]" },
+  { name: "compress", description: "Summarize conversation history to reduce context size.", category: "shell", usage: "/compress" },
   { name: "exit", description: "Quit crsr.", category: "shell", usage: "/exit" },
   { name: "quit", description: "Alias for /exit.", category: "shell", usage: "/quit" },
 ];
