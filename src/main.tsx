@@ -185,6 +185,7 @@ if (cliOptions.update) {
     store.setApiKey(config.apiKey);
   }
 
+  const startupNotices = store.consumeStartupNotices();
   const adapter = new CursorAgentAdapter(config);
   const normalizedInitialCommand = normalizeInitialCommand(
     cliOptions.initialCommand,
@@ -192,6 +193,9 @@ if (cliOptions.update) {
 
   void (async () => {
     if (cliOptions.oneShot) {
+      for (const notice of startupNotices) {
+        process.stderr.write(`${notice}\n`);
+      }
       if (!normalizedInitialCommand) {
         console.error("--once requires an initial command or prompt.");
         process.exit(1);
@@ -212,6 +216,7 @@ if (cliOptions.update) {
       store,
       initialCommand: normalizedInitialCommand,
       oneShot: cliOptions.oneShot,
+      startupNotices,
     });
   })().catch((error: unknown) => {
     const message =

@@ -16,6 +16,7 @@ import type {
 } from "../runtime/cursorAgent.js";
 import { runLocalShellCommand } from "../runtime/localShell.js";
 import { agentCommands, sessionCommands } from "../runtime/commandCatalog.js";
+import { sanitizeHistoryEntry } from "../session/history.js";
 import type { SessionStore } from "../session/sessionStore.js";
 
 export type RouteOutcome =
@@ -91,18 +92,6 @@ function tokenize(input: string): string[] {
   return tokens;
 }
 
-function sanitizeCommandForHistory(input: string): string {
-  if (input.startsWith("/api-key ")) {
-    return "/api-key [REDACTED]";
-  }
-
-  if (input.startsWith("/header add ")) {
-    return "/header add [REDACTED]";
-  }
-
-  return input;
-}
-
 const directDelegateNames = new Set([
   ...agentCommands.map((command) => command.name),
   ...sessionCommands
@@ -123,7 +112,10 @@ export class ShellRouter {
       return { kind: "noop" };
     }
 
-    this.store.recordCommand(sanitizeCommandForHistory(input));
+    const historyEntry = sanitizeHistoryEntry(input);
+    if (historyEntry) {
+      this.store.recordCommand(historyEntry);
+    }
 
     if (input.startsWith("!")) {
       return this.runShellCommand(input.slice(1).trim());

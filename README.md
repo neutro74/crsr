@@ -4,12 +4,12 @@
 
 It gives Cursor Agent a dedicated TUI with persistent session state, slash commands, local shell mode, workspace switching, and a cleaner “stay in the terminal” workflow for both interactive use and one-shot automation.
 
-**Latest release:** [v1.0.1](https://github.com/neutro74/crsr/releases/tag/v1.0.1) (`crsr --version` should print `1.0.1` when built from this tag).
+**Latest release:** [v1.0.2](https://github.com/neutro74/crsr/releases/tag/v1.0.2) (`crsr --version` should print `1.0.2` when built from this tag).
 
 ## What crsr Does
 
 - Runs `cursor-agent` inside a dedicated full-screen terminal UI.
-- Keeps a persistent workspace, model, mode, and command history between launches.
+- Keeps a persistent workspace, model, mode, and slash/shell command history between launches.
 - Supports normal prompts, plan mode, ask mode, and headless one-shot execution.
 - Adds local shell mode with `!command` so you can run terminal commands inline.
 - Exposes common `cursor-agent` features as slash commands instead of raw flags.
@@ -47,7 +47,7 @@ It gives Cursor Agent a dedicated TUI with persistent session state, slash comma
 
 - Animated branded header and status bar.
 - Conversation transcript with timestamps and tone labels.
-- Input history navigation and slash-command autocomplete.
+- Slash/shell history navigation and slash-command autocomplete.
 - Markdown-aware rendering for agent responses.
 
 ### Tabs
@@ -92,7 +92,7 @@ Examples:
 
 crsr persists session state across launches:
 
-- command history
+- slash-command and `!` shell history
 - recent workspaces
 - active workspace
 - selected model
@@ -251,7 +251,7 @@ npm run build
 
 ## Standalone binaries (GitHub Releases)
 
-Prebuilt x64 executables are attached to each release. For **v1.0.1** the assets are:
+Prebuilt x64 executables are attached to each release. For **v1.0.2** the assets are:
 
 | Platform | Asset name |
 |----------|------------|
@@ -311,6 +311,8 @@ The updater downloads the **latest** GitHub release and replaces the active `crs
 - **`CRSR_INSTALL_PATH`:** explicit path to the launcher or binary to replace.
 - **Wrapper install:** `~/.local/bin/crsr` from `npm run release` (Unix-like systems).
 
+If you are already on the latest release, `crsr --update` reports that and exits without re-downloading the binary.
+
 **Platform → release asset:**
 
 | OS | Node `process` | Asset |
@@ -326,5 +328,5 @@ On Windows, replacing a file that is still running can fail; quit `crsr` and run
 
 ## Release versioning
 
-- Release tags (for example `v1.0.1`) correspond to [GitHub Releases](https://github.com/neutro74/crsr/releases).
+- Release tags (for example `v1.0.2`) correspond to [GitHub Releases](https://github.com/neutro74/crsr/releases).
 - `npm run prepare:version` syncs `src/version.ts` from `package.json`, so `crsr -v`, the bundled wrapper, and `pkg` output stay aligned. Release builds should run `npm run bundle` (or a script that runs `prepare:version` first) before packaging.

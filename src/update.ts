@@ -26,6 +26,11 @@ interface ProcessWithPkg extends NodeJS.Process {
   pkg?: unknown;
 }
 
+export interface SelfUpdateResult {
+  updated: boolean;
+  message: string;
+}
+
 /**
  * GitHub release asset filenames (see `npm run package:linux` / multi-target `pkg` in README).
  */
@@ -90,11 +95,13 @@ function getDownloadUrl(asset: ReleaseAsset): string {
     return asset.browser_download_url;
   }
 
-  if (asset.url) {
-    return asset.url;
-  }
+  throw new Error(
+    `Release asset "${asset.name}" does not include a browser download URL.`,
+  );
+}
 
-  throw new Error(`Release asset "${asset.name}" does not include a download URL.`);
+function normalizeReleaseVersion(tagName: string): string {
+  return tagName.trim().replace(/^v/iu, "");
 }
 
 function verifyDigest(data: Buffer, digest: string | undefined): void {
@@ -160,7 +167,7 @@ async function replaceInstalledBinary(
   }
 }
 
-export async function runSelfUpdate(): Promise<void> {
+export async function runSelfUpdate(): Promise<SelfUpdateResult> {
   const installPath = await resolveInstallPath().catch(() => {
     throw new Error(
       `Unable to determine which ${APP_NAME} executable to replace. Run the local wrapper install first or use the standalone GitHub release binary.`,
@@ -171,6 +178,15 @@ export async function runSelfUpdate(): Promise<void> {
   process.stdout.write(`Checking the latest ${APP_NAME} release on GitHub...\n`);
   const release = await fetchLatestRelease();
   const releaseName = release.name ?? release.tag_name ?? "latest release";
+  if (release.tag_name && normalizeReleaseVersion(release.tag_name) === APP_VERSION) {
+    const message = `${APP_NAME} ${APP_VERSION} is already up to date (${release.tag_name}).`;
+    process.stdout.write(`${message}\n`);
+    return {
+      updated: false,
+      message,
+    };
+  }
+
   const asset = release.assets?.find((candidate) => candidate.name === assetName);
 
   if (!asset) {
@@ -188,7 +204,10 @@ export async function runSelfUpdate(): Promise<void> {
     getDownloadUrl(asset),
     asset.digest,
   );
-  process.stdout.write(
-    `${APP_NAME} updated successfully at ${installPath}. Restart the command to use the new binary.\n`,
-  );
+  const message = `${APP_NAME} updated successfully at ${installPath}. Restart the command to use the new binary.`;
+  process.stdout.write(`${message}\n`);
+  return {
+    updated: true,
+    message,
+  };
 }

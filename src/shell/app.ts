@@ -35,6 +35,7 @@ export interface AppProps {
   store: SessionStore;
   initialCommand?: string;
   oneShot?: boolean;
+  startupNotices?: string[];
 }
 
 const WORDMARK = [
@@ -345,6 +346,7 @@ export async function runApp({
   adapter,
   store,
   initialCommand,
+  startupNotices = [],
 }: AppProps): Promise<void> {
   const router = new ShellRouter(adapter, store, config.commandPassthrough);
 
@@ -574,6 +576,9 @@ export async function runApp({
     "system",
     `crsr ready — workspace: ${contractHome(store.getSnapshot().activeWorkspace ?? os.homedir())}\nType a prompt, /help for commands, Ctrl+P for palette, /settings for settings.`,
   );
+  for (const notice of startupNotices) {
+    pushEntry(activeTab().entries, "stderr", notice);
+  }
 
   function refreshSnapshot(): void {
     snapshot = store.getSnapshot();
@@ -1033,13 +1038,9 @@ export async function runApp({
         tab.busy = true;
         renderUi();
         try {
-          await runSelfUpdate();
-          pushEntry(
-            tab.entries,
-            "system",
-            "Self-update finished. Restart crsr to run the new binary.",
-          );
-          tab.statusLine = "updated";
+          const result = await runSelfUpdate();
+          pushEntry(tab.entries, "system", result.message);
+          tab.statusLine = result.updated ? "updated" : "up-to-date";
         } catch (error) {
           const message = error instanceof Error ? error.message : "Self-update failed";
           pushEntry(tab.entries, "stderr", message);

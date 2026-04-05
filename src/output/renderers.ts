@@ -14,7 +14,7 @@ export function renderHelp(): string {
 
 export function renderHistory(snapshot: SessionSnapshot): string {
   if (snapshot.commandHistory.length === 0) {
-    return "No commands recorded yet.";
+    return "No slash commands or shell commands recorded yet.";
   }
 
   return snapshot.commandHistory

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { ShellPaths } from "../config/config.js";
+import { sanitizeHistoryEntry } from "./history.js";
 
 interface PersistedSessionState {
   commandHistory: string[];
@@ -20,6 +21,12 @@ interface TransientState {
   apiKey: string | null;
   continueMode: boolean;
   resumeChatId: string | null;
+}
+
+interface LoadResult {
+  state: PersistedSessionState;
+  startupNotices: string[];
+  shouldSave: boolean;
 }
 
 export interface SessionSnapshot extends PersistedSessionState, TransientState {}
@@ -49,8 +56,72 @@ function normalizeWorkspace(workspace: string): string {
   return path.resolve(workspace);
 }
 
+function buildDefaultState(
+  defaults: SessionDefaults,
+  initialWorkspace?: string,
+): PersistedSessionState {
+  return {
+    ...DEFAULT_STATE,
+    model: defaults.model ?? null,
+    mode: defaults.mode ?? "normal",
+    forceMode: defaults.forceMode ?? false,
+    sandbox: defaults.sandbox ?? null,
+    approveMcps: defaults.approveMcps ?? false,
+    activeWorkspace: initialWorkspace ? normalizeWorkspace(initialWorkspace) : null,
+  };
+}
+
+function sanitizePersistedHistory(
+  entries: unknown,
+): { history: string[]; changed: boolean } {
+  if (!Array.isArray(entries)) {
+    return { history: [], changed: entries !== undefined };
+  }
+
+  const history: string[] = [];
+  let changed = false;
+
+  for (const entry of entries) {
+    if (typeof entry !== "string") {
+      changed = true;
+      continue;
+    }
+
+    const sanitized = sanitizeHistoryEntry(entry);
+    if (!sanitized) {
+      changed = true;
+      continue;
+    }
+
+    if (sanitized !== entry.trim()) {
+      changed = true;
+    }
+
+    if (history.includes(sanitized)) {
+      changed = true;
+      continue;
+    }
+
+    history.push(sanitized);
+    if (history.length >= 200) {
+      if (entries.length > history.length) {
+        changed = true;
+      }
+      break;
+    }
+  }
+
+  return { history, changed };
+}
+
+function buildSessionBackupPath(sessionFile: string): string {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  return `${sessionFile}.corrupt-${timestamp}.bak`;
+}
+
 export class SessionStore {
   private state: PersistedSessionState;
+  private startupNotices: string[] = [];
   private transient: TransientState = {
     apiKey: null,
     continueMode: false,
@@ -62,7 +133,12 @@ export class SessionStore {
     initialWorkspace?: string,
     private readonly defaults: SessionDefaults = {},
   ) {
-    this.state = this.load(initialWorkspace);
+    const loaded = this.load(initialWorkspace);
+    this.state = loaded.state;
+    this.startupNotices = loaded.startupNotices;
+    if (loaded.shouldSave) {
+      this.save();
+    }
   }
 
   public getSnapshot(): SessionSnapshot {
@@ -87,6 +163,12 @@ export class SessionStore {
   public clearCommandHistory(): void {
     this.state.commandHistory = [];
     this.save();
+  }
+
+  public consumeStartupNotices(): string[] {
+    const notices = [...this.startupNotices];
+    this.startupNotices = [];
+    return notices;
   }
 
   public recordCommand(command: string): void {
@@ -179,84 +261,96 @@ export class SessionStore {
     this.save();
   }
 
-  private load(initialWorkspace?: string): PersistedSessionState {
+  private load(initialWorkspace?: string): LoadResult {
+    const defaultState = buildDefaultState(this.defaults, initialWorkspace);
     if (existsSync(this.sessionFile)) {
+      let raw = "";
       try {
-        const raw = readFileSync(this.sessionFile, "utf8");
+        raw = readFileSync(this.sessionFile, "utf8");
         const parsed = JSON.parse(raw) as Partial<PersistedSessionState>;
+        const sanitizedHistory = sanitizePersistedHistory(parsed.commandHistory);
         return {
-          commandHistory: Array.isArray(parsed.commandHistory)
-            ? parsed.commandHistory.filter(
-                (entry): entry is string => typeof entry === "string",
-              )
-            : [],
-          recentWorkspaces: Array.isArray(parsed.recentWorkspaces)
-            ? parsed.recentWorkspaces.filter(
-                (entry): entry is string => typeof entry === "string",
-              )
-            : [],
-          activeWorkspace:
-            typeof parsed.activeWorkspace === "string"
-              ? parsed.activeWorkspace
-              : initialWorkspace
-                ? normalizeWorkspace(initialWorkspace)
-                : null,
-          model:
-            typeof parsed.model === "string"
-              ? parsed.model
-              : this.defaults.model ?? null,
-          mode:
-            parsed.mode === "normal" ||
-            parsed.mode === "plan" ||
-            parsed.mode === "ask"
-              ? parsed.mode
-              : this.defaults.mode ?? "normal",
-          forceMode:
-            typeof parsed.forceMode === "boolean"
-              ? parsed.forceMode
-              : this.defaults.forceMode ?? false,
-          sandbox:
-            parsed.sandbox === "enabled" || parsed.sandbox === "disabled"
-              ? parsed.sandbox
-              : this.defaults.sandbox ?? null,
-          approveMcps:
-            typeof parsed.approveMcps === "boolean"
-              ? parsed.approveMcps
-              : this.defaults.approveMcps ?? false,
-          customHeaders: Array.isArray(parsed.customHeaders)
-            ? parsed.customHeaders.filter(
-                (entry): entry is string => typeof entry === "string",
-              )
-            : [],
-          theme: typeof parsed.theme === "string" ? parsed.theme : "dark",
-          vimMode: parsed.vimMode === true,
+          state: {
+            commandHistory: sanitizedHistory.history,
+            recentWorkspaces: Array.isArray(parsed.recentWorkspaces)
+              ? parsed.recentWorkspaces.filter(
+                  (entry): entry is string => typeof entry === "string",
+                )
+              : [],
+            activeWorkspace:
+              typeof parsed.activeWorkspace === "string"
+                ? parsed.activeWorkspace
+                : initialWorkspace
+                  ? normalizeWorkspace(initialWorkspace)
+                  : null,
+            model:
+              typeof parsed.model === "string"
+                ? parsed.model
+                : this.defaults.model ?? null,
+            mode:
+              parsed.mode === "normal" ||
+              parsed.mode === "plan" ||
+              parsed.mode === "ask"
+                ? parsed.mode
+                : this.defaults.mode ?? "normal",
+            forceMode:
+              typeof parsed.forceMode === "boolean"
+                ? parsed.forceMode
+                : this.defaults.forceMode ?? false,
+            sandbox:
+              parsed.sandbox === "enabled" || parsed.sandbox === "disabled"
+                ? parsed.sandbox
+                : this.defaults.sandbox ?? null,
+            approveMcps:
+              typeof parsed.approveMcps === "boolean"
+                ? parsed.approveMcps
+                : this.defaults.approveMcps ?? false,
+            customHeaders: Array.isArray(parsed.customHeaders)
+              ? parsed.customHeaders.filter(
+                  (entry): entry is string => typeof entry === "string",
+                )
+              : [],
+            theme: typeof parsed.theme === "string" ? parsed.theme : "dark",
+            vimMode: parsed.vimMode === true,
+          },
+          startupNotices: [],
+          shouldSave: sanitizedHistory.changed,
         };
-      } catch {
+      } catch (error) {
+        const backupPath = this.backupInvalidSessionFile(raw);
+        const detail = error instanceof Error ? error.message : "Unknown parse error";
+        const backupDetail = backupPath
+          ? ` A backup was saved to ${backupPath}.`
+          : " A backup could not be written.";
         return {
-          ...DEFAULT_STATE,
-          model: this.defaults.model ?? null,
-          mode: this.defaults.mode ?? "normal",
-          forceMode: this.defaults.forceMode ?? false,
-          sandbox: this.defaults.sandbox ?? null,
-          approveMcps: this.defaults.approveMcps ?? false,
-          activeWorkspace: initialWorkspace
-            ? normalizeWorkspace(initialWorkspace)
-            : null,
+          state: defaultState,
+          startupNotices: [
+            `Session data at ${this.sessionFile} was invalid and has been reset to defaults (${detail}).${backupDetail}`,
+          ],
+          shouldSave: true,
         };
       }
     }
 
     return {
-      ...DEFAULT_STATE,
-      model: this.defaults.model ?? null,
-      mode: this.defaults.mode ?? "normal",
-      forceMode: this.defaults.forceMode ?? false,
-      sandbox: this.defaults.sandbox ?? null,
-      approveMcps: this.defaults.approveMcps ?? false,
-      activeWorkspace: initialWorkspace
-        ? normalizeWorkspace(initialWorkspace)
-        : null,
+      state: defaultState,
+      startupNotices: [],
+      shouldSave: false,
     };
+  }
+
+  private backupInvalidSessionFile(raw: string): string | null {
+    if (raw.length === 0) {
+      return null;
+    }
+
+    const backupPath = buildSessionBackupPath(this.sessionFile);
+    try {
+      writeFileSync(backupPath, raw, "utf8");
+      return backupPath;
+    } catch {
+      return null;
+    }
   }
 
   private save(): void {
