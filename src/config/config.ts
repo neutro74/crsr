@@ -41,6 +41,24 @@ export interface ShellConfig {
   paths: ShellPaths;
 }
 
+function normalizeOptionalPath(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  return path.resolve(value);
+}
+
+function normalizeHeaders(headers: string[] | undefined): string[] {
+  if (!headers) {
+    return [];
+  }
+
+  return headers
+    .map((header) => header.trim())
+    .filter((header, index, all) => header.length > 0 && all.indexOf(header) === index);
+}
+
 function getXdgPath(envValue: string | undefined, fallback: string): string {
   return envValue && envValue.trim().length > 0 ? envValue : fallback;
 }
@@ -87,8 +105,10 @@ export function loadShellConfig(): ShellConfig {
 
   return {
     binaryPath:
-      parsedConfig.binaryPath ?? process.env.CURSOR_AGENT_BINARY ?? undefined,
-    workspace: parsedConfig.workspace,
+      normalizeOptionalPath(parsedConfig.binaryPath) ??
+      normalizeOptionalPath(process.env.CURSOR_AGENT_BINARY) ??
+      undefined,
+    workspace: normalizeOptionalPath(parsedConfig.workspace),
     defaultModel: parsedConfig.defaultModel,
     defaultMode: parsedConfig.defaultMode ?? "normal",
     forceMode: parsedConfig.forceMode ?? false,
@@ -97,7 +117,7 @@ export function loadShellConfig(): ShellConfig {
     approveMcps: parsedConfig.approveMcps ?? false,
     sandbox: parsedConfig.sandbox ?? null,
     apiKey: parsedConfig.apiKey ?? process.env.CURSOR_API_KEY ?? undefined,
-    defaultHeaders: parsedConfig.defaultHeaders ?? [],
+    defaultHeaders: normalizeHeaders(parsedConfig.defaultHeaders),
     paths,
   };
 }

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { ShellPaths } from "../config/config.js";
 
@@ -45,8 +45,49 @@ const DEFAULT_STATE: PersistedSessionState = {
   vimMode: false,
 };
 
+const MAX_HISTORY_ITEMS = 200;
+const MAX_RECENT_WORKSPACES = 20;
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
 function normalizeWorkspace(workspace: string): string {
-  return path.resolve(workspace);
+  return path.resolve(workspace.trim());
+}
+
+function normalizeWorkspaceList(value: unknown, limit: number): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const normalized: string[] = [];
+  for (const entry of value) {
+    if (!isNonEmptyString(entry)) {
+      continue;
+    }
+
+    const resolved = normalizeWorkspace(entry);
+    if (!normalized.includes(resolved)) {
+      normalized.push(resolved);
+    }
+    if (normalized.length >= limit) {
+      break;
+    }
+  }
+
+  return normalized;
+}
+
+function normalizeHeaders(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter(isNonEmptyString)
+    .map((entry) => entry.trim())
+    .filter((entry, index, all) => all.indexOf(entry) === index);
 }
 
 export class SessionStore {
@@ -98,7 +139,7 @@ export class SessionStore {
     const nextHistory = [
       trimmed,
       ...this.state.commandHistory.filter((existing) => existing !== trimmed),
-    ].slice(0, 200);
+    ].slice(0, MAX_HISTORY_ITEMS);
 
     this.state.commandHistory = nextHistory;
     this.save();
@@ -110,7 +151,7 @@ export class SessionStore {
     this.state.recentWorkspaces = [
       normalized,
       ...this.state.recentWorkspaces.filter((existing) => existing !== normalized),
-    ].slice(0, 20);
+    ].slice(0, MAX_RECENT_WORKSPACES);
     this.save();
     return normalized;
   }
@@ -180,30 +221,39 @@ export class SessionStore {
   }
 
   private load(initialWorkspace?: string): PersistedSessionState {
+    const normalizedInitialWorkspace = initialWorkspace
+      ? normalizeWorkspace(initialWorkspace)
+      : null;
+
     if (existsSync(this.sessionFile)) {
       try {
         const raw = readFileSync(this.sessionFile, "utf8");
         const parsed = JSON.parse(raw) as Partial<PersistedSessionState>;
+        const recentWorkspaces = normalizeWorkspaceList(
+          parsed.recentWorkspaces,
+          MAX_RECENT_WORKSPACES,
+        );
+        const activeWorkspace = isNonEmptyString(parsed.activeWorkspace)
+          ? normalizeWorkspace(parsed.activeWorkspace)
+          : normalizedInitialWorkspace;
+
+        if (activeWorkspace && !recentWorkspaces.includes(activeWorkspace)) {
+          recentWorkspaces.unshift(activeWorkspace);
+        }
+
         return {
           commandHistory: Array.isArray(parsed.commandHistory)
             ? parsed.commandHistory.filter(
-                (entry): entry is string => typeof entry === "string",
+                (entry): entry is string => isNonEmptyString(entry),
               )
+                .map((entry) => entry.trim())
+                .slice(0, MAX_HISTORY_ITEMS)
             : [],
-          recentWorkspaces: Array.isArray(parsed.recentWorkspaces)
-            ? parsed.recentWorkspaces.filter(
-                (entry): entry is string => typeof entry === "string",
-              )
-            : [],
-          activeWorkspace:
-            typeof parsed.activeWorkspace === "string"
-              ? parsed.activeWorkspace
-              : initialWorkspace
-                ? normalizeWorkspace(initialWorkspace)
-                : null,
+          recentWorkspaces: recentWorkspaces.slice(0, MAX_RECENT_WORKSPACES),
+          activeWorkspace,
           model:
-            typeof parsed.model === "string"
-              ? parsed.model
+            isNonEmptyString(parsed.model)
+              ? parsed.model.trim()
               : this.defaults.model ?? null,
           mode:
             parsed.mode === "normal" ||
@@ -223,12 +273,8 @@ export class SessionStore {
             typeof parsed.approveMcps === "boolean"
               ? parsed.approveMcps
               : this.defaults.approveMcps ?? false,
-          customHeaders: Array.isArray(parsed.customHeaders)
-            ? parsed.customHeaders.filter(
-                (entry): entry is string => typeof entry === "string",
-              )
-            : [],
-          theme: typeof parsed.theme === "string" ? parsed.theme : "dark",
+          customHeaders: normalizeHeaders(parsed.customHeaders),
+          theme: isNonEmptyString(parsed.theme) ? parsed.theme.trim() : "dark",
           vimMode: parsed.vimMode === true,
         };
       } catch {
@@ -239,9 +285,7 @@ export class SessionStore {
           forceMode: this.defaults.forceMode ?? false,
           sandbox: this.defaults.sandbox ?? null,
           approveMcps: this.defaults.approveMcps ?? false,
-          activeWorkspace: initialWorkspace
-            ? normalizeWorkspace(initialWorkspace)
-            : null,
+          activeWorkspace: normalizedInitialWorkspace,
         };
       }
     }
@@ -253,18 +297,25 @@ export class SessionStore {
       forceMode: this.defaults.forceMode ?? false,
       sandbox: this.defaults.sandbox ?? null,
       approveMcps: this.defaults.approveMcps ?? false,
-      activeWorkspace: initialWorkspace
-        ? normalizeWorkspace(initialWorkspace)
-        : null,
+      activeWorkspace: normalizedInitialWorkspace,
     };
   }
 
   private save(): void {
-    writeFileSync(
-      this.sessionFile,
-      JSON.stringify(this.state, null, 2) + "\n",
-      "utf8",
-    );
+    try {
+      mkdirSync(path.dirname(this.sessionFile), { recursive: true });
+      writeFileSync(
+        this.sessionFile,
+        JSON.stringify(this.state, null, 2) + "\n",
+        "utf8",
+      );
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unknown session save error";
+      process.stderr.write(
+        `[crsr] Warning: unable to save session state to ${this.sessionFile}: ${message}\n`,
+      );
+    }
   }
 }
 

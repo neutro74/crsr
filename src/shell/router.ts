@@ -199,6 +199,13 @@ export class ShellRouter {
         const snapshot = this.store.getSnapshot();
         if (args.length > 0) {
           const index = parseInt(args[0]!, 10);
+          if (!Number.isInteger(index) || index < 1) {
+            return {
+              kind: "message",
+              title: "Recent",
+              body: "Usage: /recent <n>  (where n is a positive number from /recent)",
+            };
+          }
           const target = snapshot.recentWorkspaces[index - 1];
           if (!target) {
             return {

@@ -1,7 +1,9 @@
 import { spawn } from "node:child_process";
+import path from "node:path";
 import type { CommandRunResult, StreamEvent } from "./cursorAgent.js";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
+const FORCE_KILL_DELAY_MS = 2_000;
 const MAX_CAPTURE_BYTES = 64 * 1024;
 
 type StreamCallback = (event: StreamEvent) => void;
@@ -11,8 +13,19 @@ function getChunkSize(chunks: string[]): number {
 }
 
 function getShellInvocation(shell: string, command: string): string[] {
-  if (process.platform === "win32") {
-    return ["-Command", command];
+  const shellName = path.basename(shell).toLowerCase();
+
+  if (shellName === "cmd" || shellName === "cmd.exe") {
+    return ["/d", "/s", "/c", command];
+  }
+
+  if (
+    shellName === "powershell" ||
+    shellName === "powershell.exe" ||
+    shellName === "pwsh" ||
+    shellName === "pwsh.exe"
+  ) {
+    return ["-NoProfile", "-Command", command];
   }
 
   return ["-lc", command];
@@ -58,8 +71,13 @@ export async function runLocalShellCommand(
 
     const timeout = setTimeout(() => {
       timedOut = true;
-      child.kill("SIGTERM");
+      child.kill();
     }, DEFAULT_TIMEOUT_MS);
+    const forceKillTimeout = setTimeout(() => {
+      if (!child.killed) {
+        child.kill("SIGKILL");
+      }
+    }, DEFAULT_TIMEOUT_MS + FORCE_KILL_DELAY_MS);
 
     child.stdout.on("data", (chunk: Buffer | string) => {
       const text = chunk.toString();
@@ -83,11 +101,13 @@ export async function runLocalShellCommand(
 
     child.on("error", (error) => {
       clearTimeout(timeout);
+      clearTimeout(forceKillTimeout);
       reject(error);
     });
 
     child.on("close", (code) => {
       clearTimeout(timeout);
+      clearTimeout(forceKillTimeout);
 
       if (timedOut) {
         onEvent({

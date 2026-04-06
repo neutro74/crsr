@@ -16,6 +16,10 @@ interface CliOptions {
   workspace?: string;
 }
 
+function isOptionToken(value: string | undefined): boolean {
+  return typeof value === "string" && value.startsWith("-");
+}
+
 function renderHelp(): void {
   console.log(`crsr - terminal wrapper for cursor-agent
 
@@ -36,6 +40,11 @@ Run 'crsr --once /help' to see all interactive commands.
 
 function renderVersion(): void {
   console.log(`${APP_NAME} ${APP_VERSION}`);
+}
+
+function fail(message: string): never {
+  process.stderr.write(`${message}\n`);
+  process.exit(1);
 }
 
 function parseCliArguments(
@@ -59,7 +68,11 @@ function parseCliArguments(
     }
 
     if (token === "--workspace") {
-      options.workspace = argv[index + 1];
+      const workspace = argv[index + 1];
+      if (!workspace || isOptionToken(workspace)) {
+        throw new Error("--workspace requires a path value.");
+      }
+      options.workspace = workspace;
       index += 1;
       continue;
     }
@@ -144,7 +157,15 @@ async function runOneShotCommand(
   }
 }
 
-const cliOptions = parseCliArguments(process.argv.slice(2));
+let cliOptions: CliOptions | "help" | "version";
+try {
+  cliOptions = parseCliArguments(process.argv.slice(2));
+} catch (error) {
+  const message =
+    error instanceof Error ? error.message : "Unable to parse command-line arguments.";
+  fail(message);
+}
+
 if (cliOptions === "help") {
   renderHelp();
   process.exit(0);

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { access, chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { APP_NAME, APP_VERSION } from "./version.js";
@@ -24,6 +24,15 @@ interface LatestReleaseResponse {
 
 interface ProcessWithPkg extends NodeJS.Process {
   pkg?: unknown;
+}
+
+function normalizeVersion(value: string | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value.trim().replace(/^v/i, "");
+  return normalized.length > 0 ? normalized : null;
 }
 
 /**
@@ -66,6 +75,19 @@ async function resolveInstallPath(): Promise<string> {
   return DEFAULT_INSTALL_PATH;
 }
 
+async function isWrapperInstall(targetPath: string): Promise<boolean> {
+  try {
+    const content = await readFile(targetPath, "utf8");
+    return (
+      content.startsWith("#!/bin/sh\n") &&
+      content.includes("CRSR_INSTALL_PATH=") &&
+      content.includes("exec node ")
+    );
+  } catch {
+    return false;
+  }
+}
+
 async function fetchLatestRelease(): Promise<LatestReleaseResponse> {
   const response = await fetch(RELEASE_API_URL, {
     headers: {
@@ -90,11 +112,9 @@ function getDownloadUrl(asset: ReleaseAsset): string {
     return asset.browser_download_url;
   }
 
-  if (asset.url) {
-    return asset.url;
-  }
-
-  throw new Error(`Release asset "${asset.name}" does not include a download URL.`);
+  throw new Error(
+    `Release asset "${asset.name}" does not include a browser download URL.`,
+  );
 }
 
 function verifyDigest(data: Buffer, digest: string | undefined): void {
@@ -166,11 +186,21 @@ export async function runSelfUpdate(): Promise<void> {
       `Unable to determine which ${APP_NAME} executable to replace. Run the local wrapper install first or use the standalone GitHub release binary.`,
     );
   });
+  if (await isWrapperInstall(installPath)) {
+    throw new Error(
+      `Refusing to overwrite the local wrapper at ${installPath}. Reinstall from source with npm run release, or point CRSR_INSTALL_PATH at a standalone binary location before running --update.`,
+    );
+  }
   const assetName = getReleaseAssetName();
 
   process.stdout.write(`Checking the latest ${APP_NAME} release on GitHub...\n`);
   const release = await fetchLatestRelease();
   const releaseName = release.name ?? release.tag_name ?? "latest release";
+  const releaseVersion = normalizeVersion(release.tag_name ?? release.name);
+  if (releaseVersion === APP_VERSION) {
+    process.stdout.write(`${APP_NAME} ${APP_VERSION} is already up to date.\n`);
+    return;
+  }
   const asset = release.assets?.find((candidate) => candidate.name === assetName);
 
   if (!asset) {
