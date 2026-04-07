@@ -41,25 +41,38 @@ function expandHome(rawPath: string): string {
   return rawPath;
 }
 
-function tokenize(input: string): string[] {
+export interface TokenizeCommandResult {
+  tokens: string[];
+  error?: string;
+}
+
+export function tokenizeCommandInput(input: string): TokenizeCommandResult {
   const tokens: string[] = [];
   let current = "";
   let quote: '"' | "'" | null = null;
   let escaping = false;
+  const trimmedInput = input.trim();
 
-  for (const character of input.trim()) {
+  for (let index = 0; index < trimmedInput.length; index += 1) {
+    const character = trimmedInput[index]!;
+    const nextCharacter = trimmedInput[index + 1];
+
     if (escaping) {
       current += character;
       escaping = false;
       continue;
     }
 
-    if (character === "\\") {
-      escaping = true;
-      continue;
-    }
-
     if (quote) {
+      if (character === "\\") {
+        if (nextCharacter === quote || nextCharacter === "\\") {
+          escaping = true;
+          continue;
+        }
+        current += character;
+        continue;
+      }
+
       if (character === quote) {
         quote = null;
       } else {
@@ -68,12 +81,27 @@ function tokenize(input: string): string[] {
       continue;
     }
 
+    if (character === "\\") {
+      if (
+        nextCharacter &&
+        (/\s/u.test(nextCharacter) ||
+          nextCharacter === '"' ||
+          nextCharacter === "'" ||
+          nextCharacter === "\\")
+      ) {
+        escaping = true;
+        continue;
+      }
+      current += character;
+      continue;
+    }
+
     if (character === '"' || character === "'") {
       quote = character;
       continue;
     }
 
-    if (/\s/.test(character)) {
+    if (/\s/u.test(character)) {
       if (current.length > 0) {
         tokens.push(current);
         current = "";
@@ -84,11 +112,22 @@ function tokenize(input: string): string[] {
     current += character;
   }
 
+  if (escaping) {
+    current += "\\";
+  }
+
+  if (quote) {
+    return {
+      tokens: [],
+      error: `Unterminated ${quote} quote in command.`,
+    };
+  }
+
   if (current.length > 0) {
     tokens.push(current);
   }
 
-  return tokens;
+  return { tokens };
 }
 
 function sanitizeCommandForHistory(input: string): string {
@@ -133,7 +172,14 @@ export class ShellRouter {
       return this.runPrompt(input);
     }
 
-    const tokens = tokenize(input.slice(1));
+    const { tokens, error } = tokenizeCommandInput(input.slice(1));
+    if (error) {
+      return {
+        kind: "message",
+        title: "Command",
+        body: error,
+      };
+    }
     const [command, ...args] = tokens;
 
     switch (command) {

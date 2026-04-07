@@ -1,5 +1,13 @@
 import { createHash } from "node:crypto";
-import { access, chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  mkdir,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { APP_NAME, APP_VERSION } from "./version.js";
@@ -97,6 +105,45 @@ function getDownloadUrl(asset: ReleaseAsset): string {
   throw new Error(`Release asset "${asset.name}" does not include a download URL.`);
 }
 
+export function isSameReleaseVersion(
+  releaseTag: string | undefined,
+  currentVersion = APP_VERSION,
+): boolean {
+  if (!releaseTag) {
+    return false;
+  }
+
+  const normalize = (value: string) => value.replace(/^v/iu, "");
+  return normalize(releaseTag) === normalize(currentVersion);
+}
+
+export function isSourceInstallWrapper(fileSample: string): boolean {
+  const normalized = fileSample.replace(/\r\n/g, "\n");
+  return (
+    normalized.startsWith("#!/bin/sh\n") &&
+    normalized.includes("CRSR_INSTALL_PATH=") &&
+    normalized.includes("exec node ")
+  );
+}
+
+async function assertReplaceableInstallPath(targetPath: string): Promise<void> {
+  try {
+    const fileSample = (await readFile(targetPath))
+      .subarray(0, 2048)
+      .toString("utf8");
+    if (isSourceInstallWrapper(fileSample)) {
+      throw new Error(
+        `The installed ${APP_NAME} launcher at ${targetPath} was created from a source checkout. Rebuild it from source instead of using self-update, or point CRSR_INSTALL_PATH at a standalone release binary.`,
+      );
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === "ENOENT") {
+      return;
+    }
+    throw error;
+  }
+}
+
 function verifyDigest(data: Buffer, digest: string | undefined): void {
   if (!digest?.startsWith("sha256:")) {
     return;
@@ -166,10 +213,17 @@ export async function runSelfUpdate(): Promise<void> {
       `Unable to determine which ${APP_NAME} executable to replace. Run the local wrapper install first or use the standalone GitHub release binary.`,
     );
   });
+  await assertReplaceableInstallPath(installPath);
   const assetName = getReleaseAssetName();
 
   process.stdout.write(`Checking the latest ${APP_NAME} release on GitHub...\n`);
   const release = await fetchLatestRelease();
+  if (isSameReleaseVersion(release.tag_name)) {
+    process.stdout.write(
+      `${APP_NAME} ${APP_VERSION} is already up to date.\n`,
+    );
+    return;
+  }
   const releaseName = release.name ?? release.tag_name ?? "latest release";
   const asset = release.assets?.find((candidate) => candidate.name === assetName);
 
