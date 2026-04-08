@@ -1,5 +1,13 @@
 import { createHash } from "node:crypto";
-import { access, chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  mkdir,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { APP_NAME, APP_VERSION } from "./version.js";
@@ -8,6 +16,7 @@ const RELEASE_REPOSITORY = "neutro74/crsr";
 const RELEASE_API_URL = `https://api.github.com/repos/${RELEASE_REPOSITORY}/releases/latest`;
 const DEFAULT_INSTALL_PATH = path.join(os.homedir(), ".local", "bin", APP_NAME);
 const DOWNLOAD_TIMEOUT_MS = 5 * 60 * 1000;
+const SOURCE_WRAPPER_MARKER = "crsr-source-wrapper";
 
 interface ReleaseAsset {
   name: string;
@@ -29,9 +38,10 @@ interface ProcessWithPkg extends NodeJS.Process {
 /**
  * GitHub release asset filenames (see `npm run package:linux` / multi-target `pkg` in README).
  */
-export function getReleaseAssetName(): string {
-  const { platform, arch } = process;
-
+export function getReleaseAssetNameForPlatform(
+  platform: NodeJS.Platform,
+  arch: string,
+): string {
   if (platform === "linux" && arch === "x64") {
     return "crsr-linux-x64";
   }
@@ -49,6 +59,10 @@ export function getReleaseAssetName(): string {
     `No GitHub release binary for this platform (${platform}-${arch}). ` +
       "Supported: linux-x64, darwin-x64|arm64, win32-x64.",
   );
+}
+
+export function getReleaseAssetName(): string {
+  return getReleaseAssetNameForPlatform(process.platform, process.arch);
 }
 
 async function resolveInstallPath(): Promise<string> {
@@ -95,6 +109,46 @@ function getDownloadUrl(asset: ReleaseAsset): string {
   }
 
   throw new Error(`Release asset "${asset.name}" does not include a download URL.`);
+}
+
+function normalizeReleaseVersion(value: string | undefined): string | null {
+  const normalized = value?.trim().replace(/^v/iu, "");
+  return normalized ? normalized : null;
+}
+
+export function isSourceInstallWrapperContent(content: string): boolean {
+  const normalized = content.replace(/\r\n/g, "\n");
+  return (
+    normalized.includes(SOURCE_WRAPPER_MARKER) ||
+    (normalized.startsWith("#!") &&
+      normalized.includes("CRSR_INSTALL_PATH") &&
+      normalized.includes("exec node "))
+  );
+}
+
+async function isSourceInstallWrapper(targetPath: string): Promise<boolean> {
+  if (process.platform === "win32") {
+    return false;
+  }
+
+  try {
+    const content = (await readFile(targetPath)).subarray(0, 2048).toString("utf8");
+    return isSourceInstallWrapperContent(content);
+  } catch {
+    return false;
+  }
+}
+
+async function assertInstallPathCanBeUpdated(targetPath: string): Promise<void> {
+  if (!(await isSourceInstallWrapper(targetPath))) {
+    return;
+  }
+
+  throw new Error(
+    `Self-update does not replace the source-installed wrapper at ${targetPath}. ` +
+      `Rebuild this checkout with "npm run release", or set CRSR_INSTALL_PATH ` +
+      `to a standalone ${APP_NAME} binary before running --update.`,
+  );
 }
 
 function verifyDigest(data: Buffer, digest: string | undefined): void {
@@ -168,9 +222,18 @@ export async function runSelfUpdate(): Promise<void> {
   });
   const assetName = getReleaseAssetName();
 
+  await assertInstallPathCanBeUpdated(installPath);
+
   process.stdout.write(`Checking the latest ${APP_NAME} release on GitHub...\n`);
   const release = await fetchLatestRelease();
   const releaseName = release.name ?? release.tag_name ?? "latest release";
+  const latestVersion = normalizeReleaseVersion(release.tag_name);
+
+  if (latestVersion === APP_VERSION) {
+    process.stdout.write(`${APP_NAME} ${APP_VERSION} is already up to date.\n`);
+    return;
+  }
+
   const asset = release.assets?.find((candidate) => candidate.name === assetName);
 
   if (!asset) {

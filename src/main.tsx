@@ -16,6 +16,10 @@ interface CliOptions {
   workspace?: string;
 }
 
+interface CliParseError {
+  error: string;
+}
+
 function renderHelp(): void {
   console.log(`crsr - terminal wrapper for cursor-agent
 
@@ -40,7 +44,7 @@ function renderVersion(): void {
 
 function parseCliArguments(
   argv: string[],
-): CliOptions | "help" | "version" {
+): CliOptions | "help" | "version" | CliParseError {
   const options: CliOptions = { oneShot: false, update: false };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -59,7 +63,13 @@ function parseCliArguments(
     }
 
     if (token === "--workspace") {
-      options.workspace = argv[index + 1];
+      const workspace = argv[index + 1];
+      if (!workspace || workspace.startsWith("-")) {
+        return {
+          error: "--workspace requires a path argument.",
+        };
+      }
+      options.workspace = workspace;
       index += 1;
       continue;
     }
@@ -153,6 +163,11 @@ if (cliOptions === "help") {
 if (cliOptions === "version") {
   renderVersion();
   process.exit(0);
+}
+
+if ("error" in cliOptions) {
+  process.stderr.write(`${cliOptions.error}\n`);
+  process.exit(1);
 }
 
 if (cliOptions.update) {

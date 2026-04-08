@@ -41,30 +41,31 @@ function expandHome(rawPath: string): string {
   return rawPath;
 }
 
-function tokenize(input: string): string[] {
+export function tokenizeSlashCommand(input: string): string[] {
   const tokens: string[] = [];
+  const trimmed = input.trim();
   let current = "";
   let quote: '"' | "'" | null = null;
-  let escaping = false;
 
-  for (const character of input.trim()) {
-    if (escaping) {
-      current += character;
-      escaping = false;
-      continue;
-    }
-
-    if (character === "\\") {
-      escaping = true;
-      continue;
-    }
+  for (let index = 0; index < trimmed.length; index += 1) {
+    const character = trimmed[index]!;
 
     if (quote) {
       if (character === quote) {
         quote = null;
-      } else {
-        current += character;
+        continue;
       }
+
+      if (quote === '"' && character === "\\") {
+        const next = trimmed[index + 1];
+        if (next === '"' || next === "\\") {
+          current += next;
+          index += 1;
+          continue;
+        }
+      }
+
+      current += character;
       continue;
     }
 
@@ -73,7 +74,23 @@ function tokenize(input: string): string[] {
       continue;
     }
 
-    if (/\s/.test(character)) {
+    if (character === "\\") {
+      const next = trimmed[index + 1];
+      if (next === undefined) {
+        current += "\\";
+        continue;
+      }
+
+      if (/\s/u.test(next) || next === '"' || next === "'" || next === "\\") {
+        current += next;
+        index += 1;
+      } else {
+        current += "\\";
+      }
+      continue;
+    }
+
+    if (/\s/u.test(character)) {
       if (current.length > 0) {
         tokens.push(current);
         current = "";
@@ -86,6 +103,12 @@ function tokenize(input: string): string[] {
 
   if (current.length > 0) {
     tokens.push(current);
+  }
+
+  if (quote) {
+    throw new Error(
+      `Unterminated ${quote === '"' ? "double" : "single"} quote in slash command.`,
+    );
   }
 
   return tokens;
@@ -133,7 +156,16 @@ export class ShellRouter {
       return this.runPrompt(input);
     }
 
-    const tokens = tokenize(input.slice(1));
+    let tokens: string[];
+    try {
+      tokens = tokenizeSlashCommand(input.slice(1));
+    } catch (error) {
+      return {
+        kind: "message",
+        title: "Command Error",
+        body: error instanceof Error ? error.message : "Invalid slash command.",
+      };
+    }
     const [command, ...args] = tokens;
 
     switch (command) {
