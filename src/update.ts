@@ -1,5 +1,13 @@
 import { createHash } from "node:crypto";
-import { access, chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  mkdir,
+  open,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { APP_NAME, APP_VERSION } from "./version.js";
@@ -8,6 +16,8 @@ const RELEASE_REPOSITORY = "neutro74/crsr";
 const RELEASE_API_URL = `https://api.github.com/repos/${RELEASE_REPOSITORY}/releases/latest`;
 const DEFAULT_INSTALL_PATH = path.join(os.homedir(), ".local", "bin", APP_NAME);
 const DOWNLOAD_TIMEOUT_MS = 5 * 60 * 1000;
+const INSTALL_PATH_PROBE_BYTES = 256;
+const SOURCE_WRAPPER_MARKER = "# crsr-source-wrapper";
 
 interface ReleaseAsset {
   name: string;
@@ -64,6 +74,40 @@ async function resolveInstallPath(): Promise<string> {
 
   await access(DEFAULT_INSTALL_PATH);
   return DEFAULT_INSTALL_PATH;
+}
+
+async function readInstallPrefix(targetPath: string): Promise<string | null> {
+  const handle = await open(targetPath, "r").catch(() => null);
+  if (!handle) {
+    return null;
+  }
+
+  try {
+    const buffer = Buffer.alloc(INSTALL_PATH_PROBE_BYTES);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    return buffer.toString("utf8", 0, bytesRead);
+  } finally {
+    await handle.close().catch(() => undefined);
+  }
+}
+
+async function assertInstallPathIsUpdatable(targetPath: string): Promise<void> {
+  const installPrefix = await readInstallPrefix(targetPath);
+  if (!installPrefix?.includes(SOURCE_WRAPPER_MARKER)) {
+    return;
+  }
+
+  throw new Error(
+    "This crsr install was created from source via `npm run release`, so self-update would replace the local wrapper with a packaged release binary. Rebuild locally with `npm run release` instead, or set CRSR_INSTALL_PATH to a standalone release binary path.",
+  );
+}
+
+function normalizeReleaseVersion(tagName: string | undefined): string | null {
+  if (!tagName) {
+    return null;
+  }
+
+  return tagName.replace(/^v/u, "").trim() || null;
 }
 
 async function fetchLatestRelease(): Promise<LatestReleaseResponse> {
@@ -161,15 +205,22 @@ async function replaceInstalledBinary(
 }
 
 export async function runSelfUpdate(): Promise<void> {
-  const installPath = await resolveInstallPath().catch(() => {
-    throw new Error(
-      `Unable to determine which ${APP_NAME} executable to replace. Run the local wrapper install first or use the standalone GitHub release binary.`,
-    );
-  });
   const assetName = getReleaseAssetName();
 
   process.stdout.write(`Checking the latest ${APP_NAME} release on GitHub...\n`);
   const release = await fetchLatestRelease();
+  const latestVersion = normalizeReleaseVersion(release.tag_name);
+  if (latestVersion === APP_VERSION) {
+    process.stdout.write(`${APP_NAME} ${APP_VERSION} is already up to date.\n`);
+    return;
+  }
+
+  const installPath = await resolveInstallPath().catch(() => {
+    throw new Error(
+      `Unable to determine which ${APP_NAME} executable to replace. Use a standalone GitHub release binary or set CRSR_INSTALL_PATH explicitly.`,
+    );
+  });
+  await assertInstallPathIsUpdatable(installPath);
   const releaseName = release.name ?? release.tag_name ?? "latest release";
   const asset = release.assets?.find((candidate) => candidate.name === assetName);
 

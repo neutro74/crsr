@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import path from "node:path";
 import type { CommandRunResult, StreamEvent } from "./cursorAgent.js";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -11,7 +12,18 @@ function getChunkSize(chunks: string[]): number {
 }
 
 function getShellInvocation(shell: string, command: string): string[] {
-  if (process.platform === "win32") {
+  const shellName = path.basename(shell).toLowerCase();
+
+  if (shellName === "cmd" || shellName === "cmd.exe") {
+    return ["/d", "/s", "/c", command];
+  }
+
+  if (
+    shellName === "powershell" ||
+    shellName === "powershell.exe" ||
+    shellName === "pwsh" ||
+    shellName === "pwsh.exe"
+  ) {
     return ["-Command", command];
   }
 

@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { statSync } from "node:fs";
+import path from "node:path";
 import { loadShellConfig } from "./config/config.js";
 import { renderCommandResult } from "./output/renderers.js";
 import { CursorAgentAdapter } from "./runtime/cursorAgent.js";
@@ -14,6 +16,10 @@ interface CliOptions {
   oneShot: boolean;
   update: boolean;
   workspace?: string;
+}
+
+function isOptionToken(token: string | undefined): boolean {
+  return typeof token === "string" && token.startsWith("-");
 }
 
 function renderHelp(): void {
@@ -58,8 +64,21 @@ function parseCliArguments(
       continue;
     }
 
+    if (token.startsWith("--workspace=")) {
+      const workspace = token.slice("--workspace=".length).trim();
+      if (workspace.length === 0) {
+        throw new Error("--workspace requires a directory path.");
+      }
+      options.workspace = workspace;
+      continue;
+    }
+
     if (token === "--workspace") {
-      options.workspace = argv[index + 1];
+      const workspace = argv[index + 1];
+      if (!workspace || isOptionToken(workspace)) {
+        throw new Error("--workspace requires a directory path.");
+      }
+      options.workspace = workspace;
       index += 1;
       continue;
     }
@@ -69,6 +88,23 @@ function parseCliArguments(
   }
 
   return options;
+}
+
+function resolveWorkspaceOverride(workspace: string): string {
+  const resolvedWorkspace = path.resolve(workspace);
+  let stats;
+
+  try {
+    stats = statSync(resolvedWorkspace);
+  } catch {
+    throw new Error(`Workspace does not exist: ${resolvedWorkspace}`);
+  }
+
+  if (!stats.isDirectory()) {
+    throw new Error(`Workspace is not a directory: ${resolvedWorkspace}`);
+  }
+
+  return resolvedWorkspace;
 }
 
 function normalizeInitialCommand(
@@ -144,7 +180,16 @@ async function runOneShotCommand(
   }
 }
 
-const cliOptions = parseCliArguments(process.argv.slice(2));
+const cliOptions = (() => {
+  try {
+    return parseCliArguments(process.argv.slice(2));
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unable to parse command-line arguments.";
+    process.stderr.write(`${message}\n`);
+    process.exit(1);
+  }
+})();
 if (cliOptions === "help") {
   renderHelp();
   process.exit(0);
@@ -167,8 +212,21 @@ if (cliOptions.update) {
       process.exit(1);
     });
 } else {
-  const config = loadShellConfig();
-  const initialWorkspace = cliOptions.workspace ?? config.workspace;
+  let config: ReturnType<typeof loadShellConfig>;
+  let workspaceOverride: string | undefined;
+
+  try {
+    config = loadShellConfig();
+    workspaceOverride = cliOptions.workspace
+      ? resolveWorkspaceOverride(cliOptions.workspace)
+      : undefined;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`${message}\n`);
+    process.exit(1);
+  }
+
+  const initialWorkspace = workspaceOverride ?? config.workspace;
   const store = createSessionStore(config.paths, initialWorkspace, {
     model: config.defaultModel,
     mode: config.defaultMode,
@@ -177,8 +235,8 @@ if (cliOptions.update) {
     approveMcps: config.approveMcps,
   });
 
-  if (cliOptions.workspace) {
-    store.setActiveWorkspace(cliOptions.workspace);
+  if (workspaceOverride) {
+    store.setActiveWorkspace(workspaceOverride);
   }
 
   if (config.apiKey) {

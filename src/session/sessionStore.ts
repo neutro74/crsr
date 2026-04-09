@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { ShellPaths } from "../config/config.js";
 
@@ -47,6 +47,40 @@ const DEFAULT_STATE: PersistedSessionState = {
 
 function normalizeWorkspace(workspace: string): string {
   return path.resolve(workspace);
+}
+
+function normalizeWorkspaceList(workspaces: string[]): string[] {
+  return [...new Set(workspaces.map((workspace) => normalizeWorkspace(workspace)))];
+}
+
+function createDefaultState(
+  defaults: SessionDefaults,
+  initialWorkspace?: string,
+): PersistedSessionState {
+  return {
+    ...DEFAULT_STATE,
+    model: defaults.model ?? null,
+    mode: defaults.mode ?? "normal",
+    forceMode: defaults.forceMode ?? false,
+    sandbox: defaults.sandbox ?? null,
+    approveMcps: defaults.approveMcps ?? false,
+    activeWorkspace: initialWorkspace ? normalizeWorkspace(initialWorkspace) : null,
+  };
+}
+
+function preserveCorruptSessionFile(sessionFile: string): void {
+  const backupPath = `${sessionFile}.corrupt-${new Date().toISOString().replaceAll(":", "-")}`;
+
+  try {
+    renameSync(sessionFile, backupPath);
+    process.stderr.write(
+      `Warning: preserved unreadable session state at ${backupPath}; starting with a fresh session.\n`,
+    );
+  } catch {
+    process.stderr.write(
+      `Warning: unable to read session state at ${sessionFile}; starting with a fresh session.\n`,
+    );
+  }
 }
 
 export class SessionStore {
@@ -191,13 +225,15 @@ export class SessionStore {
               )
             : [],
           recentWorkspaces: Array.isArray(parsed.recentWorkspaces)
-            ? parsed.recentWorkspaces.filter(
-                (entry): entry is string => typeof entry === "string",
+            ? normalizeWorkspaceList(
+                parsed.recentWorkspaces.filter(
+                  (entry): entry is string => typeof entry === "string",
+                ),
               )
             : [],
           activeWorkspace:
             typeof parsed.activeWorkspace === "string"
-              ? parsed.activeWorkspace
+              ? normalizeWorkspace(parsed.activeWorkspace)
               : initialWorkspace
                 ? normalizeWorkspace(initialWorkspace)
                 : null,
@@ -232,31 +268,12 @@ export class SessionStore {
           vimMode: parsed.vimMode === true,
         };
       } catch {
-        return {
-          ...DEFAULT_STATE,
-          model: this.defaults.model ?? null,
-          mode: this.defaults.mode ?? "normal",
-          forceMode: this.defaults.forceMode ?? false,
-          sandbox: this.defaults.sandbox ?? null,
-          approveMcps: this.defaults.approveMcps ?? false,
-          activeWorkspace: initialWorkspace
-            ? normalizeWorkspace(initialWorkspace)
-            : null,
-        };
+        preserveCorruptSessionFile(this.sessionFile);
+        return createDefaultState(this.defaults, initialWorkspace);
       }
     }
 
-    return {
-      ...DEFAULT_STATE,
-      model: this.defaults.model ?? null,
-      mode: this.defaults.mode ?? "normal",
-      forceMode: this.defaults.forceMode ?? false,
-      sandbox: this.defaults.sandbox ?? null,
-      approveMcps: this.defaults.approveMcps ?? false,
-      activeWorkspace: initialWorkspace
-        ? normalizeWorkspace(initialWorkspace)
-        : null,
-    };
+    return createDefaultState(this.defaults, initialWorkspace);
   }
 
   private save(): void {
