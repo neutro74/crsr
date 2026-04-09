@@ -50,7 +50,7 @@ function parseCliArguments(
   const options: CliOptions = { oneShot: false, update: false };
 
   for (let index = 0; index < argv.length; index += 1) {
-    const token = argv[index];
+    const token = argv[index]!;
     if (token === "--help" || token === "-h") return "help";
     if (token === "--version" || token === "-v") return "version";
 
