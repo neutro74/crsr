@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { parseCliArguments } from "./cli.js";
 import { loadShellConfig } from "./config/config.js";
 import { renderCommandResult } from "./output/renderers.js";
 import { CursorAgentAdapter } from "./runtime/cursorAgent.js";
@@ -8,13 +9,6 @@ import { runApp } from "./shell/app.js";
 import { createSessionStore } from "./session/sessionStore.js";
 import { runSelfUpdate } from "./update.js";
 import { APP_NAME, APP_VERSION } from "./version.js";
-
-interface CliOptions {
-  initialCommand?: string;
-  oneShot: boolean;
-  update: boolean;
-  workspace?: string;
-}
 
 function renderHelp(): void {
   console.log(`crsr - terminal wrapper for cursor-agent
@@ -36,39 +30,6 @@ Run 'crsr --once /help' to see all interactive commands.
 
 function renderVersion(): void {
   console.log(`${APP_NAME} ${APP_VERSION}`);
-}
-
-function parseCliArguments(
-  argv: string[],
-): CliOptions | "help" | "version" {
-  const options: CliOptions = { oneShot: false, update: false };
-
-  for (let index = 0; index < argv.length; index += 1) {
-    const token = argv[index];
-    if (token === "--help" || token === "-h") return "help";
-    if (token === "--version" || token === "-v") return "version";
-
-    if (token === "--once") {
-      options.oneShot = true;
-      continue;
-    }
-
-    if (token === "--update") {
-      options.update = true;
-      continue;
-    }
-
-    if (token === "--workspace") {
-      options.workspace = argv[index + 1];
-      index += 1;
-      continue;
-    }
-
-    options.initialCommand = argv.slice(index).join(" ");
-    break;
-  }
-
-  return options;
 }
 
 function normalizeInitialCommand(
@@ -144,17 +105,23 @@ async function runOneShotCommand(
   }
 }
 
-const cliOptions = parseCliArguments(process.argv.slice(2));
-if (cliOptions === "help") {
+const cliParseResult = parseCliArguments(process.argv.slice(2));
+if (cliParseResult.kind === "help") {
   renderHelp();
   process.exit(0);
 }
 
-if (cliOptions === "version") {
+if (cliParseResult.kind === "version") {
   renderVersion();
   process.exit(0);
 }
 
+if (cliParseResult.kind === "error") {
+  process.stderr.write(`${cliParseResult.message}\n`);
+  process.exit(1);
+}
+
+const cliOptions = cliParseResult.options;
 if (cliOptions.update) {
   void runSelfUpdate()
     .then(() => {

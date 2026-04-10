@@ -1,5 +1,13 @@
 import { createHash } from "node:crypto";
-import { access, chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  mkdir,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { APP_NAME, APP_VERSION } from "./version.js";
@@ -8,6 +16,7 @@ const RELEASE_REPOSITORY = "neutro74/crsr";
 const RELEASE_API_URL = `https://api.github.com/repos/${RELEASE_REPOSITORY}/releases/latest`;
 const DEFAULT_INSTALL_PATH = path.join(os.homedir(), ".local", "bin", APP_NAME);
 const DOWNLOAD_TIMEOUT_MS = 5 * 60 * 1000;
+const SOURCE_WRAPPER_MARKER = "# crsr-source-wrapper";
 
 interface ReleaseAsset {
   name: string;
@@ -85,21 +94,31 @@ async function fetchLatestRelease(): Promise<LatestReleaseResponse> {
   return (await response.json()) as LatestReleaseResponse;
 }
 
-function getDownloadUrl(asset: ReleaseAsset): string {
+export function getDownloadUrl(asset: ReleaseAsset): string {
   if (asset.browser_download_url) {
     return asset.browser_download_url;
   }
 
-  if (asset.url) {
-    return asset.url;
-  }
-
-  throw new Error(`Release asset "${asset.name}" does not include a download URL.`);
+  throw new Error(
+    `Release asset "${asset.name}" does not include a browser_download_url.`,
+  );
 }
 
-function verifyDigest(data: Buffer, digest: string | undefined): void {
-  if (!digest?.startsWith("sha256:")) {
-    return;
+export function verifyDigest(
+  assetName: string,
+  data: Buffer,
+  digest: string | undefined,
+): void {
+  if (!digest) {
+    throw new Error(
+      `Release asset "${assetName}" is missing a SHA-256 digest; refusing to install an unverified binary.`,
+    );
+  }
+
+  if (!digest.startsWith("sha256:")) {
+    throw new Error(
+      `Release asset "${assetName}" uses unsupported digest format "${digest}". Expected sha256:<hex>.`,
+    );
   }
 
   const expectedDigest = digest.slice("sha256:".length).toLowerCase();
@@ -110,6 +129,37 @@ function verifyDigest(data: Buffer, digest: string | undefined): void {
       `Downloaded binary checksum mismatch. Expected ${expectedDigest}, received ${actualDigest}.`,
     );
   }
+}
+
+function isLikelySourceWrapper(contents: string): boolean {
+  return (
+    contents.includes(SOURCE_WRAPPER_MARKER) ||
+    (contents.startsWith("#!/bin/sh") &&
+      contents.includes("CRSR_INSTALL_PATH=") &&
+      contents.includes("exec node "))
+  );
+}
+
+async function assertReplaceableInstallTarget(targetPath: string): Promise<void> {
+  const packagedProcess = process as ProcessWithPkg;
+  if (packagedProcess.pkg || process.platform === "win32") {
+    return;
+  }
+
+  const contents = await readFile(targetPath, "utf8").catch(() => null);
+  if (!contents) {
+    return;
+  }
+
+  if (isLikelySourceWrapper(contents)) {
+    throw new Error(
+      `Self-update will not replace the source wrapper installed by "npm run release". Rebuild from source with "npm run release" or point CRSR_INSTALL_PATH at a standalone binary.`,
+    );
+  }
+}
+
+export function isCurrentVersionTag(tagName: string | undefined): boolean {
+  return tagName === APP_VERSION || tagName === `v${APP_VERSION}`;
 }
 
 async function replaceInstalledBinary(
@@ -147,7 +197,7 @@ async function replaceInstalledBinary(
     }
 
     const binaryData = Buffer.from(await response.arrayBuffer());
-    verifyDigest(binaryData, digest);
+    verifyDigest(assetName, binaryData, digest);
     await writeFile(temporaryPath, binaryData, {
       mode: isWindows ? 0o666 : 0o755,
     });
@@ -170,6 +220,13 @@ export async function runSelfUpdate(): Promise<void> {
 
   process.stdout.write(`Checking the latest ${APP_NAME} release on GitHub...\n`);
   const release = await fetchLatestRelease();
+  if (isCurrentVersionTag(release.tag_name)) {
+    process.stdout.write(
+      `${APP_NAME} ${APP_VERSION} is already the latest release.\n`,
+    );
+    return;
+  }
+
   const releaseName = release.name ?? release.tag_name ?? "latest release";
   const asset = release.assets?.find((candidate) => candidate.name === assetName);
 
@@ -182,6 +239,7 @@ export async function runSelfUpdate(): Promise<void> {
   process.stdout.write(
     `Downloading ${asset.name} from ${releaseName} and replacing ${installPath}...\n`,
   );
+  await assertReplaceableInstallTarget(installPath);
   await replaceInstalledBinary(
     installPath,
     asset.name,

@@ -13,11 +13,21 @@ const rawConfigSchema = z
     trustPrintMode: z.boolean().optional(),
     commandPassthrough: z.boolean().optional(),
     approveMcps: z.boolean().optional(),
-    sandbox: z.enum(["enabled", "disabled"]).optional(),
+    sandbox: z.enum(["enabled", "disabled", "off"]).optional(),
     apiKey: z.string().trim().min(1).optional(),
     defaultHeaders: z.array(z.string()).optional(),
   })
   .partial();
+
+function normalizeConfiguredSandbox(
+  value: "enabled" | "disabled" | "off" | undefined,
+): "enabled" | "disabled" | null {
+  if (value === "enabled" || value === "disabled") {
+    return value;
+  }
+
+  return null;
+}
 
 export interface ShellPaths {
   configDir: string;
@@ -95,7 +105,7 @@ export function loadShellConfig(): ShellConfig {
     trustPrintMode: parsedConfig.trustPrintMode ?? true,
     commandPassthrough: parsedConfig.commandPassthrough ?? true,
     approveMcps: parsedConfig.approveMcps ?? false,
-    sandbox: parsedConfig.sandbox ?? null,
+    sandbox: normalizeConfiguredSandbox(parsedConfig.sandbox),
     apiKey: parsedConfig.apiKey ?? process.env.CURSOR_API_KEY ?? undefined,
     defaultHeaders: parsedConfig.defaultHeaders ?? [],
     paths,
