@@ -1,10 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import {
   getDownloadUrl,
   isCurrentVersionTag,
   verifyDigest,
 } from "../src/update.js";
+import { APP_VERSION } from "../src/version.js";
 
 test("getDownloadUrl requires browser download URL", () => {
   assert.equal(
@@ -41,10 +43,11 @@ test("verifyDigest fails closed for missing or unsupported digests", () => {
 
 test("verifyDigest accepts matching sha256 digests", () => {
   const data = Buffer.from("test-binary");
+  const digest = createHash("sha256").update(data).digest("hex");
   verifyDigest(
     "crsr-linux-x64",
     data,
-    "sha256:6a2f0f8c6b4f0ff37f61551e8f00a0636b4fa5242ac50336f9a7fb2b0e32ce89",
+    `sha256:${digest}`,
   );
 });
 
@@ -63,8 +66,8 @@ test("verifyDigest rejects mismatched sha256 digests", () => {
 });
 
 test("isCurrentVersionTag matches bare and v-prefixed versions", () => {
-  assert.equal(isCurrentVersionTag("1.0.1"), true);
-  assert.equal(isCurrentVersionTag("v1.0.1"), true);
+  assert.equal(isCurrentVersionTag(APP_VERSION), true);
+  assert.equal(isCurrentVersionTag(`v${APP_VERSION}`), true);
   assert.equal(isCurrentVersionTag("v9.9.9"), false);
   assert.equal(isCurrentVersionTag(undefined), false);
 });

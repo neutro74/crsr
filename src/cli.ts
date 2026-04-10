@@ -16,6 +16,9 @@ export function parseCliArguments(argv: string[]): CliParseResult {
 
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
+    if (token === undefined) {
+      continue;
+    }
     if (token === "--help" || token === "-h") return { kind: "help" };
     if (token === "--version" || token === "-v") return { kind: "version" };
 
