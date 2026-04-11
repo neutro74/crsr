@@ -1,20 +1,13 @@
 #!/usr/bin/env node
+import { normalizeInitialCommand, parseCliArguments } from "./cli.js";
 import { loadShellConfig } from "./config/config.js";
 import { renderCommandResult } from "./output/renderers.js";
 import { CursorAgentAdapter } from "./runtime/cursorAgent.js";
-import { allCommands } from "./runtime/commandCatalog.js";
 import { ShellRouter } from "./shell/router.js";
 import { runApp } from "./shell/app.js";
 import { createSessionStore } from "./session/sessionStore.js";
 import { runSelfUpdate } from "./update.js";
 import { APP_NAME, APP_VERSION } from "./version.js";
-
-interface CliOptions {
-  initialCommand?: string;
-  oneShot: boolean;
-  update: boolean;
-  workspace?: string;
-}
 
 function renderHelp(): void {
   console.log(`crsr - terminal wrapper for cursor-agent
@@ -36,54 +29,6 @@ Run 'crsr --once /help' to see all interactive commands.
 
 function renderVersion(): void {
   console.log(`${APP_NAME} ${APP_VERSION}`);
-}
-
-function parseCliArguments(
-  argv: string[],
-): CliOptions | "help" | "version" {
-  const options: CliOptions = { oneShot: false, update: false };
-
-  for (let index = 0; index < argv.length; index += 1) {
-    const token = argv[index];
-    if (token === "--help" || token === "-h") return "help";
-    if (token === "--version" || token === "-v") return "version";
-
-    if (token === "--once") {
-      options.oneShot = true;
-      continue;
-    }
-
-    if (token === "--update") {
-      options.update = true;
-      continue;
-    }
-
-    if (token === "--workspace") {
-      options.workspace = argv[index + 1];
-      index += 1;
-      continue;
-    }
-
-    options.initialCommand = argv.slice(index).join(" ");
-    break;
-  }
-
-  return options;
-}
-
-function normalizeInitialCommand(
-  initialCommand: string | undefined,
-): string | undefined {
-  if (!initialCommand) return undefined;
-  if (initialCommand.startsWith("/")) return initialCommand;
-
-  const firstToken = initialCommand.trim().split(/\s+/u)[0];
-  const knownNames = new Set([
-    ...allCommands.map((command) => command.name.split(" ")[0]),
-    "mcp",
-  ]);
-
-  return knownNames.has(firstToken) ? `/${initialCommand}` : initialCommand;
 }
 
 async function runOneShotCommand(
@@ -145,17 +90,22 @@ async function runOneShotCommand(
 }
 
 const cliOptions = parseCliArguments(process.argv.slice(2));
-if (cliOptions === "help") {
+if (cliOptions.kind === "help") {
   renderHelp();
   process.exit(0);
 }
 
-if (cliOptions === "version") {
+if (cliOptions.kind === "version") {
   renderVersion();
   process.exit(0);
 }
 
-if (cliOptions.update) {
+if (cliOptions.kind === "error") {
+  process.stderr.write(`${cliOptions.message}\n`);
+  process.exit(1);
+}
+
+if (cliOptions.options.update) {
   void runSelfUpdate()
     .then(() => {
       process.exit(0);
@@ -168,7 +118,7 @@ if (cliOptions.update) {
     });
 } else {
   const config = loadShellConfig();
-  const initialWorkspace = cliOptions.workspace ?? config.workspace;
+  const initialWorkspace = cliOptions.options.workspace ?? config.workspace;
   const store = createSessionStore(config.paths, initialWorkspace, {
     model: config.defaultModel,
     mode: config.defaultMode,
@@ -177,8 +127,8 @@ if (cliOptions.update) {
     approveMcps: config.approveMcps,
   });
 
-  if (cliOptions.workspace) {
-    store.setActiveWorkspace(cliOptions.workspace);
+  if (cliOptions.options.workspace) {
+    store.setActiveWorkspace(cliOptions.options.workspace);
   }
 
   if (config.apiKey) {
@@ -187,11 +137,11 @@ if (cliOptions.update) {
 
   const adapter = new CursorAgentAdapter(config);
   const normalizedInitialCommand = normalizeInitialCommand(
-    cliOptions.initialCommand,
+    cliOptions.options.initialCommand,
   );
 
   void (async () => {
-    if (cliOptions.oneShot) {
+    if (cliOptions.options.oneShot) {
       if (!normalizedInitialCommand) {
         console.error("--once requires an initial command or prompt.");
         process.exit(1);
@@ -211,7 +161,7 @@ if (cliOptions.update) {
       adapter,
       store,
       initialCommand: normalizedInitialCommand,
-      oneShot: cliOptions.oneShot,
+      oneShot: cliOptions.options.oneShot,
     });
   })().catch((error: unknown) => {
     const message =

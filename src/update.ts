@@ -1,5 +1,13 @@
 import { createHash } from "node:crypto";
-import { access, chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  mkdir,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { APP_NAME, APP_VERSION } from "./version.js";
@@ -24,6 +32,11 @@ interface LatestReleaseResponse {
 
 interface ProcessWithPkg extends NodeJS.Process {
   pkg?: unknown;
+}
+
+interface InstallTarget {
+  path: string;
+  source: "packaged" | "env" | "default";
 }
 
 /**
@@ -51,19 +64,19 @@ export function getReleaseAssetName(): string {
   );
 }
 
-async function resolveInstallPath(): Promise<string> {
+export async function resolveInstallTarget(): Promise<InstallTarget> {
   const packagedProcess = process as ProcessWithPkg;
   if (packagedProcess.pkg) {
-    return process.execPath;
+    return { path: process.execPath, source: "packaged" };
   }
 
   const wrapperPath = process.env.CRSR_INSTALL_PATH?.trim();
   if (wrapperPath) {
-    return wrapperPath;
+    return { path: wrapperPath, source: "env" };
   }
 
   await access(DEFAULT_INSTALL_PATH);
-  return DEFAULT_INSTALL_PATH;
+  return { path: DEFAULT_INSTALL_PATH, source: "default" };
 }
 
 async function fetchLatestRelease(): Promise<LatestReleaseResponse> {
@@ -85,21 +98,38 @@ async function fetchLatestRelease(): Promise<LatestReleaseResponse> {
   return (await response.json()) as LatestReleaseResponse;
 }
 
-function getDownloadUrl(asset: ReleaseAsset): string {
-  if (asset.browser_download_url) {
-    return asset.browser_download_url;
+export async function isWrapperInstallScript(targetPath: string): Promise<boolean> {
+  try {
+    const content = await readFile(targetPath, "utf8");
+    return (
+      content.startsWith("#!") &&
+      content.includes("CRSR_INSTALL_PATH=") &&
+      content.includes("exec node ")
+    );
+  } catch {
+    return false;
   }
-
-  if (asset.url) {
-    return asset.url;
-  }
-
-  throw new Error(`Release asset "${asset.name}" does not include a download URL.`);
 }
 
-function verifyDigest(data: Buffer, digest: string | undefined): void {
+export function getDownloadUrl(asset: ReleaseAsset): string {
+  if (!asset.browser_download_url) {
+    throw new Error(
+      `Release asset "${asset.name}" does not include browser_download_url metadata.`,
+    );
+  }
+
+  return asset.browser_download_url;
+}
+
+export function verifyDigest(
+  data: Buffer,
+  digest: string | undefined,
+  assetName: string,
+): void {
   if (!digest?.startsWith("sha256:")) {
-    return;
+    throw new Error(
+      `Release asset "${assetName}" is missing a sha256 digest and cannot be verified.`,
+    );
   }
 
   const expectedDigest = digest.slice("sha256:".length).toLowerCase();
@@ -147,7 +177,7 @@ async function replaceInstalledBinary(
     }
 
     const binaryData = Buffer.from(await response.arrayBuffer());
-    verifyDigest(binaryData, digest);
+    verifyDigest(binaryData, digest, assetName);
     await writeFile(temporaryPath, binaryData, {
       mode: isWindows ? 0o666 : 0o755,
     });
@@ -161,11 +191,19 @@ async function replaceInstalledBinary(
 }
 
 export async function runSelfUpdate(): Promise<void> {
-  const installPath = await resolveInstallPath().catch(() => {
+  const installTarget = await resolveInstallTarget().catch(() => {
     throw new Error(
       `Unable to determine which ${APP_NAME} executable to replace. Run the local wrapper install first or use the standalone GitHub release binary.`,
     );
   });
+  if (
+    installTarget.source !== "packaged" &&
+    (await isWrapperInstallScript(installTarget.path))
+  ) {
+    throw new Error(
+      `Refusing to overwrite wrapper install at ${installTarget.path}. Rebuild from source with "npm run release" or point CRSR_INSTALL_PATH at a standalone binary path.`,
+    );
+  }
   const assetName = getReleaseAssetName();
 
   process.stdout.write(`Checking the latest ${APP_NAME} release on GitHub...\n`);
@@ -180,15 +218,15 @@ export async function runSelfUpdate(): Promise<void> {
   }
 
   process.stdout.write(
-    `Downloading ${asset.name} from ${releaseName} and replacing ${installPath}...\n`,
+    `Downloading ${asset.name} from ${releaseName} and replacing ${installTarget.path}...\n`,
   );
   await replaceInstalledBinary(
-    installPath,
+    installTarget.path,
     asset.name,
     getDownloadUrl(asset),
     asset.digest,
   );
   process.stdout.write(
-    `${APP_NAME} updated successfully at ${installPath}. Restart the command to use the new binary.\n`,
+    `${APP_NAME} updated successfully at ${installTarget.path}. Restart the command to use the new binary.\n`,
   );
 }
