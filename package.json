@@ -16,7 +16,7 @@
     "package:linux": "npm run bundle && mkdir -p release && pkg package.json --targets node18-linux-x64 --output release/crsr-linux-x64 --public-packages '*'",
     "start": "node dist/crsr.cjs",
     "check": "tsc --noEmit -p tsconfig.json",
-    "test": "node --import tsx --test test"
+    "test": "node --import tsx --test ./test/cli.test.ts ./test/router.test.ts ./test/update.test.ts"
   },
   "keywords": [
     "cursor",
