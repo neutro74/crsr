@@ -4,7 +4,7 @@
 
 It gives Cursor Agent a dedicated TUI with persistent session state, slash commands, local shell mode, workspace switching, and a cleaner “stay in the terminal” workflow for both interactive use and one-shot automation.
 
-**Latest release:** [v1.0.1](https://github.com/neutro74/crsr/releases/tag/v1.0.1) (`crsr --version` should print `1.0.1` when built from this tag).
+**Latest release:** [v1.0.2](https://github.com/neutro74/crsr/releases/tag/v1.0.2) (`crsr --version` should print `1.0.2` when built from this tag).
 
 ## What crsr Does
 
@@ -169,6 +169,7 @@ Options:
 - `--workspace <path>`: start in a specific workspace
 - `--once`: run one prompt or command headlessly, then exit
 - `--update`: download the latest GitHub release binary and replace the current `crsr` executable (see limitations below)
+- `--`: treat the remaining text as the initial command or prompt (useful when it starts with `-`)
 - `-h`, `--help`: show help
 - `-v`, `--version`: show version
 
@@ -180,6 +181,7 @@ crsr --workspace ~/project
 crsr --once "summarize this repository"
 crsr --once /status
 crsr --once '!pwd'
+crsr --once -- --version
 crsr --update
 ```
 
@@ -251,7 +253,7 @@ npm run build
 
 ## Standalone binaries (GitHub Releases)
 
-Prebuilt x64 executables are attached to each release. For **v1.0.1** the assets are:
+Prebuilt x64 executables are attached to each release. For **v1.0.2** the assets are:
 
 | Platform | Asset name |
 |----------|------------|
@@ -305,11 +307,12 @@ From the TUI you can run:
 
 (`/update` still delegates to `cursor-agent` and updates the agent, not crsr.)
 
-The updater downloads the **latest** GitHub release and replaces the active `crsr` executable when it can resolve the install path:
+The updater downloads the **latest** GitHub release and replaces the active `crsr` executable when it can resolve a standalone binary path:
 
 - **Packaged binary:** `process.execPath` (standalone `pkg` builds).
-- **`CRSR_INSTALL_PATH`:** explicit path to the launcher or binary to replace.
-- **Wrapper install:** `~/.local/bin/crsr` from `npm run release` (Unix-like systems).
+- **`CRSR_INSTALL_PATH`:** explicit path to the standalone binary to replace.
+
+The local wrapper installed by `npm run release` at `~/.local/bin/crsr` is a shell script that points at your checkout. Self-update now refuses to overwrite that wrapper; rebuild from source instead.
 
 **Platform → release asset:**
 
@@ -322,9 +325,11 @@ The updater downloads the **latest** GitHub release and replaces the active `crs
 
 Other platforms (for example Linux arm64) have no matching release asset yet; self-update will report an error.
 
+Release assets must include a `browser_download_url` and `sha256:` digest before the updater will replace a binary.
+
 On Windows, replacing a file that is still running can fail; quit `crsr` and run `crsr --update` from another terminal if you hit a file-lock error.
 
 ## Release versioning
 
-- Release tags (for example `v1.0.1`) correspond to [GitHub Releases](https://github.com/neutro74/crsr/releases).
+- Release tags (for example `v1.0.2`) correspond to [GitHub Releases](https://github.com/neutro74/crsr/releases).
 - `npm run prepare:version` syncs `src/version.ts` from `package.json`, so `crsr -v`, the bundled wrapper, and `pkg` output stay aligned. Release builds should run `npm run bundle` (or a script that runs `prepare:version` first) before packaging.

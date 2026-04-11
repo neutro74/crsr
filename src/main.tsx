@@ -19,6 +19,7 @@ Options:
   --workspace <path>  Set the workspace for delegated commands
   --once              Run the initial command once and exit (headless)
   --update            Download and replace this binary from GitHub releases
+  --                  Treat the remaining text as the initial command/prompt
   -h, --help          Show this help message
   -v, --version       Show the version
 
