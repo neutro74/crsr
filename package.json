@@ -1,11 +1,12 @@
 {
   "name": "crsr",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Terminal wrapper shell for Cursor Agent",
   "type": "module",
   "main": "dist/crsr.cjs",
   "scripts": {
     "dev": "tsx src/main.tsx",
+    "test": "tsx --test tests/cli.test.ts tests/sessionStore.test.ts",
     "prepare:version": "node ./scripts/sync-version.mjs",
     "prebuild": "npm run prepare:version",
     "build": "tsc -p tsconfig.json",

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { ShellPaths } from "../config/config.js";
 
@@ -47,6 +47,34 @@ const DEFAULT_STATE: PersistedSessionState = {
 
 function normalizeWorkspace(workspace: string): string {
   return path.resolve(workspace);
+}
+
+function normalizeRecentWorkspaces(
+  recentWorkspaces: unknown[],
+  activeWorkspace: string | null,
+): string[] {
+  const normalized: string[] = [];
+
+  if (activeWorkspace) {
+    normalized.push(activeWorkspace);
+  }
+
+  for (const entry of recentWorkspaces) {
+    if (typeof entry !== "string" || entry.trim().length === 0) {
+      continue;
+    }
+
+    const nextWorkspace = normalizeWorkspace(entry);
+    if (!normalized.includes(nextWorkspace)) {
+      normalized.push(nextWorkspace);
+    }
+
+    if (normalized.length >= 20) {
+      break;
+    }
+  }
+
+  return normalized;
 }
 
 export class SessionStore {
@@ -184,23 +212,27 @@ export class SessionStore {
       try {
         const raw = readFileSync(this.sessionFile, "utf8");
         const parsed = JSON.parse(raw) as Partial<PersistedSessionState>;
+        const fallbackWorkspace = initialWorkspace
+          ? normalizeWorkspace(initialWorkspace)
+          : null;
+        const activeWorkspace =
+          typeof parsed.activeWorkspace === "string" &&
+          parsed.activeWorkspace.trim().length > 0
+            ? normalizeWorkspace(parsed.activeWorkspace)
+            : fallbackWorkspace;
+        const recentWorkspaces = Array.isArray(parsed.recentWorkspaces)
+          ? normalizeRecentWorkspaces(parsed.recentWorkspaces, activeWorkspace)
+          : activeWorkspace
+            ? [activeWorkspace]
+            : [];
         return {
           commandHistory: Array.isArray(parsed.commandHistory)
             ? parsed.commandHistory.filter(
                 (entry): entry is string => typeof entry === "string",
               )
             : [],
-          recentWorkspaces: Array.isArray(parsed.recentWorkspaces)
-            ? parsed.recentWorkspaces.filter(
-                (entry): entry is string => typeof entry === "string",
-              )
-            : [],
-          activeWorkspace:
-            typeof parsed.activeWorkspace === "string"
-              ? parsed.activeWorkspace
-              : initialWorkspace
-                ? normalizeWorkspace(initialWorkspace)
-                : null,
+          recentWorkspaces,
+          activeWorkspace,
           model:
             typeof parsed.model === "string"
               ? parsed.model
@@ -242,10 +274,16 @@ export class SessionStore {
           activeWorkspace: initialWorkspace
             ? normalizeWorkspace(initialWorkspace)
             : null,
+          recentWorkspaces: initialWorkspace
+            ? [normalizeWorkspace(initialWorkspace)]
+            : [],
         };
       }
     }
 
+    const activeWorkspace = initialWorkspace
+      ? normalizeWorkspace(initialWorkspace)
+      : null;
     return {
       ...DEFAULT_STATE,
       model: this.defaults.model ?? null,
@@ -253,13 +291,13 @@ export class SessionStore {
       forceMode: this.defaults.forceMode ?? false,
       sandbox: this.defaults.sandbox ?? null,
       approveMcps: this.defaults.approveMcps ?? false,
-      activeWorkspace: initialWorkspace
-        ? normalizeWorkspace(initialWorkspace)
-        : null,
+      activeWorkspace,
+      recentWorkspaces: activeWorkspace ? [activeWorkspace] : [],
     };
   }
 
   private save(): void {
+    mkdirSync(path.dirname(this.sessionFile), { recursive: true });
     writeFileSync(
       this.sessionFile,
       JSON.stringify(this.state, null, 2) + "\n",

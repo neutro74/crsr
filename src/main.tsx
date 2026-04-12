@@ -1,20 +1,16 @@
 #!/usr/bin/env node
+import {
+  normalizeInitialCommand,
+  parseCliArguments,
+} from "./cli.js";
 import { loadShellConfig } from "./config/config.js";
 import { renderCommandResult } from "./output/renderers.js";
 import { CursorAgentAdapter } from "./runtime/cursorAgent.js";
-import { allCommands } from "./runtime/commandCatalog.js";
 import { ShellRouter } from "./shell/router.js";
 import { runApp } from "./shell/app.js";
 import { createSessionStore } from "./session/sessionStore.js";
 import { runSelfUpdate } from "./update.js";
 import { APP_NAME, APP_VERSION } from "./version.js";
-
-interface CliOptions {
-  initialCommand?: string;
-  oneShot: boolean;
-  update: boolean;
-  workspace?: string;
-}
 
 function renderHelp(): void {
   console.log(`crsr - terminal wrapper for cursor-agent
@@ -31,59 +27,12 @@ Options:
 
 Interactive commands start with /. Plain text sends a prompt.
 Run 'crsr --once /help' to see all interactive commands.
+Use '--' to stop option parsing when your prompt starts with '-'.
 `);
 }
 
 function renderVersion(): void {
   console.log(`${APP_NAME} ${APP_VERSION}`);
-}
-
-function parseCliArguments(
-  argv: string[],
-): CliOptions | "help" | "version" {
-  const options: CliOptions = { oneShot: false, update: false };
-
-  for (let index = 0; index < argv.length; index += 1) {
-    const token = argv[index];
-    if (token === "--help" || token === "-h") return "help";
-    if (token === "--version" || token === "-v") return "version";
-
-    if (token === "--once") {
-      options.oneShot = true;
-      continue;
-    }
-
-    if (token === "--update") {
-      options.update = true;
-      continue;
-    }
-
-    if (token === "--workspace") {
-      options.workspace = argv[index + 1];
-      index += 1;
-      continue;
-    }
-
-    options.initialCommand = argv.slice(index).join(" ");
-    break;
-  }
-
-  return options;
-}
-
-function normalizeInitialCommand(
-  initialCommand: string | undefined,
-): string | undefined {
-  if (!initialCommand) return undefined;
-  if (initialCommand.startsWith("/")) return initialCommand;
-
-  const firstToken = initialCommand.trim().split(/\s+/u)[0];
-  const knownNames = new Set([
-    ...allCommands.map((command) => command.name.split(" ")[0]),
-    "mcp",
-  ]);
-
-  return knownNames.has(firstToken) ? `/${initialCommand}` : initialCommand;
 }
 
 async function runOneShotCommand(
@@ -153,6 +102,11 @@ if (cliOptions === "help") {
 if (cliOptions === "version") {
   renderVersion();
   process.exit(0);
+}
+
+if (typeof cliOptions === "object" && "kind" in cliOptions) {
+  process.stderr.write(`${cliOptions.message}\n`);
+  process.exit(1);
 }
 
 if (cliOptions.update) {

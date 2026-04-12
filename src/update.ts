@@ -112,6 +112,52 @@ function verifyDigest(data: Buffer, digest: string | undefined): void {
   }
 }
 
+async function pathExists(targetPath: string): Promise<boolean> {
+  try {
+    await access(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function replaceTargetFile(
+  temporaryPath: string,
+  targetPath: string,
+  safeBase: string,
+  isWindows: boolean,
+): Promise<void> {
+  if (!isWindows || !(await pathExists(targetPath))) {
+    await rename(temporaryPath, targetPath);
+    return;
+  }
+
+  const backupPath = path.join(
+    path.dirname(targetPath),
+    `.${safeBase}.backup-${process.pid}-${Date.now()}.exe`,
+  );
+  let movedExistingBinary = false;
+
+  try {
+    await rename(targetPath, backupPath);
+    movedExistingBinary = true;
+    await rename(temporaryPath, targetPath);
+  } catch (error) {
+    if (movedExistingBinary) {
+      await rename(backupPath, targetPath).catch(() => undefined);
+    }
+    throw new Error(
+      `Unable to replace the existing ${APP_NAME} binary at ${targetPath}. ${getErrorMessage(error)}`,
+    );
+  } finally {
+    await rm(backupPath, { force: true }).catch(() => undefined);
+  }
+}
+
 async function replaceInstalledBinary(
   targetPath: string,
   assetName: string,
@@ -154,7 +200,7 @@ async function replaceInstalledBinary(
     if (!isWindows) {
       await chmod(temporaryPath, 0o755);
     }
-    await rename(temporaryPath, targetPath);
+    await replaceTargetFile(temporaryPath, targetPath, safeBase, isWindows);
   } finally {
     await rm(temporaryPath, { force: true }).catch(() => undefined);
   }
