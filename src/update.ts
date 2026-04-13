@@ -1,5 +1,13 @@
 import { createHash } from "node:crypto";
-import { access, chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  mkdir,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { APP_NAME, APP_VERSION } from "./version.js";
@@ -24,6 +32,13 @@ interface LatestReleaseResponse {
 
 interface ProcessWithPkg extends NodeJS.Process {
   pkg?: unknown;
+}
+
+export interface SelfUpdateResult {
+  kind: "updated" | "up-to-date";
+  releaseName: string;
+  version: string;
+  installPath?: string;
 }
 
 /**
@@ -86,15 +101,47 @@ async function fetchLatestRelease(): Promise<LatestReleaseResponse> {
 }
 
 function getDownloadUrl(asset: ReleaseAsset): string {
-  if (asset.browser_download_url) {
-    return asset.browser_download_url;
+  if (!asset.browser_download_url) {
+    throw new Error(
+      `Release asset "${asset.name}" does not include a browser download URL.`,
+    );
   }
 
-  if (asset.url) {
-    return asset.url;
+  return asset.browser_download_url;
+}
+
+function normalizeVersionCandidate(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return undefined;
   }
 
-  throw new Error(`Release asset "${asset.name}" does not include a download URL.`);
+  const match = /^v?(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)$/u.exec(trimmed);
+  return match?.[1];
+}
+
+function getReleaseVersion(release: LatestReleaseResponse): string | undefined {
+  return (
+    normalizeVersionCandidate(release.tag_name) ??
+    normalizeVersionCandidate(release.name)
+  );
+}
+
+async function isLocalWrapperInstall(targetPath: string): Promise<boolean> {
+  if (process.platform === "win32") {
+    return false;
+  }
+
+  const contents = await readFile(targetPath, "utf8").catch(() => undefined);
+  if (!contents) {
+    return false;
+  }
+
+  return (
+    contents.startsWith("#!/bin/sh") &&
+    contents.includes("CRSR_INSTALL_PATH=") &&
+    contents.includes("dist/crsr.cjs")
+  );
 }
 
 function verifyDigest(data: Buffer, digest: string | undefined): void {
@@ -160,7 +207,7 @@ async function replaceInstalledBinary(
   }
 }
 
-export async function runSelfUpdate(): Promise<void> {
+export async function runSelfUpdate(): Promise<SelfUpdateResult> {
   const installPath = await resolveInstallPath().catch(() => {
     throw new Error(
       `Unable to determine which ${APP_NAME} executable to replace. Run the local wrapper install first or use the standalone GitHub release binary.`,
@@ -171,6 +218,23 @@ export async function runSelfUpdate(): Promise<void> {
   process.stdout.write(`Checking the latest ${APP_NAME} release on GitHub...\n`);
   const release = await fetchLatestRelease();
   const releaseName = release.name ?? release.tag_name ?? "latest release";
+  const releaseVersion = getReleaseVersion(release);
+
+  if (releaseVersion === APP_VERSION) {
+    process.stdout.write(`${APP_NAME} is already up to date (${APP_VERSION}).\n`);
+    return {
+      kind: "up-to-date",
+      releaseName,
+      version: releaseVersion,
+    };
+  }
+
+  if (await isLocalWrapperInstall(installPath)) {
+    throw new Error(
+      `Refusing to overwrite the local wrapper at ${installPath}. Rebuild from source with "npm run release", or set CRSR_INSTALL_PATH to a standalone binary path before running --update.`,
+    );
+  }
+
   const asset = release.assets?.find((candidate) => candidate.name === assetName);
 
   if (!asset) {
@@ -191,4 +255,10 @@ export async function runSelfUpdate(): Promise<void> {
   process.stdout.write(
     `${APP_NAME} updated successfully at ${installPath}. Restart the command to use the new binary.\n`,
   );
+  return {
+    kind: "updated",
+    releaseName,
+    version: releaseVersion ?? release.tag_name ?? releaseName,
+    installPath,
+  };
 }

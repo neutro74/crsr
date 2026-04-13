@@ -1033,13 +1033,15 @@ export async function runApp({
         tab.busy = true;
         renderUi();
         try {
-          await runSelfUpdate();
+          const result = await runSelfUpdate();
           pushEntry(
             tab.entries,
             "system",
-            "Self-update finished. Restart crsr to run the new binary.",
+            result.kind === "updated"
+              ? "Self-update finished. Restart crsr to run the new binary."
+              : `crsr is already up to date (${result.version}).`,
           );
-          tab.statusLine = "updated";
+          tab.statusLine = result.kind === "updated" ? "updated" : "up to date";
         } catch (error) {
           const message = error instanceof Error ? error.message : "Self-update failed";
           pushEntry(tab.entries, "stderr", message);

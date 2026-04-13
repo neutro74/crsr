@@ -10,9 +10,33 @@ function getChunkSize(chunks: string[]): number {
   return chunks.reduce((total, item) => total + item.length, 0);
 }
 
-function getShellInvocation(shell: string, command: string): string[] {
-  if (process.platform === "win32") {
-    return ["-Command", command];
+function getShellExecutableName(shell: string): string {
+  const segments = shell.trim().split(/[\\/]+/u);
+  return (segments.at(-1) ?? shell).toLowerCase();
+}
+
+export function getShellInvocation(
+  shell: string,
+  command: string,
+  platform: NodeJS.Platform = process.platform,
+): string[] {
+  if (platform === "win32") {
+    const shellName = getShellExecutableName(shell);
+
+    if (shellName === "cmd" || shellName === "cmd.exe") {
+      return ["/d", "/s", "/c", command];
+    }
+
+    if (
+      shellName === "powershell" ||
+      shellName === "powershell.exe" ||
+      shellName === "pwsh" ||
+      shellName === "pwsh.exe"
+    ) {
+      return ["-Command", command];
+    }
+
+    return ["-lc", command];
   }
 
   return ["-lc", command];
@@ -34,7 +58,10 @@ export async function runLocalShellCommand(
   onEvent: StreamCallback,
 ): Promise<CommandRunResult> {
   const shell =
-    process.env.SHELL || (process.platform === "win32" ? "powershell" : "bash");
+    process.env.SHELL ||
+    (process.platform === "win32"
+      ? process.env.ComSpec || process.env.COMSPEC || "powershell"
+      : "bash");
   const shellArgs = getShellInvocation(shell, command);
   const startTime = Date.now();
   const stdoutChunks: string[] = [];
