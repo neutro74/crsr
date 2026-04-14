@@ -11,12 +11,19 @@ function getChunkSize(chunks: string[]): number {
   return chunks.reduce((total, item) => total + item.length, 0);
 }
 
+function getShellName(shell: string): string {
+  if (shell.includes("\\")) {
+    return path.win32.basename(shell).toLowerCase();
+  }
+  return path.basename(shell).toLowerCase();
+}
+
 export function getShellInvocation(
   shell: string,
   command: string,
   platform: NodeJS.Platform = process.platform,
 ): string[] {
-  const shellName = path.basename(shell).toLowerCase();
+  const shellName = getShellName(shell);
 
   if (platform === "win32") {
     if (shellName === "cmd" || shellName === "cmd.exe") {
