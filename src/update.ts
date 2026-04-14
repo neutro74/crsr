@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { access, chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, open, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { APP_NAME, APP_VERSION } from "./version.js";
@@ -9,7 +9,7 @@ const RELEASE_API_URL = `https://api.github.com/repos/${RELEASE_REPOSITORY}/rele
 const DEFAULT_INSTALL_PATH = path.join(os.homedir(), ".local", "bin", APP_NAME);
 const DOWNLOAD_TIMEOUT_MS = 5 * 60 * 1000;
 
-interface ReleaseAsset {
+export interface ReleaseAsset {
   name: string;
   browser_download_url?: string;
   url?: string;
@@ -29,16 +29,20 @@ interface ProcessWithPkg extends NodeJS.Process {
 /**
  * GitHub release asset filenames (see `npm run package:linux` / multi-target `pkg` in README).
  */
-export function getReleaseAssetName(): string {
-  const { platform, arch } = process;
-
+export function getReleaseAssetNameForPlatform(
+  platform: NodeJS.Platform = process.platform,
+  arch: string = process.arch,
+): string {
   if (platform === "linux" && arch === "x64") {
     return "crsr-linux-x64";
   }
 
-  if (platform === "darwin" && (arch === "x64" || arch === "arm64")) {
-    // Single macOS build is x64; Apple Silicon runs it under Rosetta when needed.
+  if (platform === "darwin" && arch === "x64") {
     return "crsr-macos-x64";
+  }
+
+  if (platform === "darwin" && arch === "arm64") {
+    return "crsr-macos-arm64";
   }
 
   if (platform === "win32" && arch === "x64") {
@@ -47,8 +51,12 @@ export function getReleaseAssetName(): string {
 
   throw new Error(
     `No GitHub release binary for this platform (${platform}-${arch}). ` +
-      "Supported: linux-x64, darwin-x64|arm64, win32-x64.",
+      "Supported: linux-x64, darwin-x64, darwin-arm64, win32-x64.",
   );
+}
+
+export function getReleaseAssetName(): string {
+  return getReleaseAssetNameForPlatform(process.platform, process.arch);
 }
 
 async function resolveInstallPath(): Promise<string> {
@@ -85,23 +93,66 @@ async function fetchLatestRelease(): Promise<LatestReleaseResponse> {
   return (await response.json()) as LatestReleaseResponse;
 }
 
-function getDownloadUrl(asset: ReleaseAsset): string {
-  if (asset.browser_download_url) {
-    return asset.browser_download_url;
-  }
-
-  if (asset.url) {
-    return asset.url;
-  }
-
-  throw new Error(`Release asset "${asset.name}" does not include a download URL.`);
+export function isLocalWrapperInstall(prefix: string): boolean {
+  const normalizedPrefix = prefix.replace(/\r\n/g, "\n");
+  return (
+    normalizedPrefix.startsWith("#!/bin/sh\n") &&
+    normalizedPrefix.includes("CRSR_INSTALL_PATH=") &&
+    normalizedPrefix.includes("exec node ")
+  );
 }
 
-function verifyDigest(data: Buffer, digest: string | undefined): void {
-  if (!digest?.startsWith("sha256:")) {
+async function readFilePrefix(
+  filePath: string,
+  maxBytes: number,
+): Promise<string> {
+  const handle = await open(filePath, "r");
+  try {
+    const buffer = Buffer.alloc(maxBytes);
+    const { bytesRead } = await handle.read(buffer, 0, maxBytes, 0);
+    return buffer.subarray(0, bytesRead).toString("utf8");
+  } finally {
+    await handle.close();
+  }
+}
+
+async function assertInstallPathSupportsSelfUpdate(
+  targetPath: string,
+): Promise<void> {
+  const packagedProcess = process as ProcessWithPkg;
+  if (packagedProcess.pkg) {
     return;
   }
 
+  const prefix = await readFilePrefix(targetPath, 512).catch(() => null);
+  if (prefix && isLocalWrapperInstall(prefix)) {
+    throw new Error(
+      `Self-update does not replace the source wrapper at ${targetPath}. Run "npm run release" again after pulling changes, or point CRSR_INSTALL_PATH at a standalone release binary.`,
+    );
+  }
+}
+
+export function getDownloadUrl(asset: ReleaseAsset): string {
+  const downloadUrl = asset.browser_download_url?.trim();
+  if (!downloadUrl) {
+    throw new Error(
+      `Release asset "${asset.name}" does not include a browser download URL.`,
+    );
+  }
+  return downloadUrl;
+}
+
+export function getRequiredDigest(asset: ReleaseAsset): string {
+  const digest = asset.digest?.trim();
+  if (!digest?.startsWith("sha256:")) {
+    throw new Error(
+      `Release asset "${asset.name}" is missing a sha256 digest.`,
+    );
+  }
+  return digest;
+}
+
+function verifyDigest(data: Buffer, digest: string): void {
   const expectedDigest = digest.slice("sha256:".length).toLowerCase();
   const actualDigest = createHash("sha256").update(data).digest("hex");
 
@@ -116,7 +167,7 @@ async function replaceInstalledBinary(
   targetPath: string,
   assetName: string,
   downloadUrl: string,
-  digest: string | undefined,
+  digest: string,
 ): Promise<void> {
   const parentDirectory = path.dirname(targetPath);
   const isWindows = process.platform === "win32";
@@ -166,6 +217,7 @@ export async function runSelfUpdate(): Promise<void> {
       `Unable to determine which ${APP_NAME} executable to replace. Run the local wrapper install first or use the standalone GitHub release binary.`,
     );
   });
+  await assertInstallPathSupportsSelfUpdate(installPath);
   const assetName = getReleaseAssetName();
 
   process.stdout.write(`Checking the latest ${APP_NAME} release on GitHub...\n`);
@@ -186,7 +238,7 @@ export async function runSelfUpdate(): Promise<void> {
     installPath,
     asset.name,
     getDownloadUrl(asset),
-    asset.digest,
+    getRequiredDigest(asset),
   );
   process.stdout.write(
     `${APP_NAME} updated successfully at ${installPath}. Restart the command to use the new binary.\n`,

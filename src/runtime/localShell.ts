@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import path from "node:path";
 import type { CommandRunResult, StreamEvent } from "./cursorAgent.js";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -10,12 +11,34 @@ function getChunkSize(chunks: string[]): number {
   return chunks.reduce((total, item) => total + item.length, 0);
 }
 
-function getShellInvocation(shell: string, command: string): string[] {
-  if (process.platform === "win32") {
+export function getShellInvocation(
+  shell: string,
+  command: string,
+  platform: NodeJS.Platform = process.platform,
+): string[] {
+  const shellName = path.basename(shell).toLowerCase();
+
+  if (platform === "win32") {
+    if (shellName === "cmd" || shellName === "cmd.exe") {
+      return ["/d", "/s", "/c", command];
+    }
     return ["-Command", command];
   }
 
-  return ["-lc", command];
+  if (
+    shellName === "bash" ||
+    shellName === "zsh" ||
+    shellName === "ksh" ||
+    shellName === "mksh"
+  ) {
+    return ["-lc", command];
+  }
+
+  if (shellName === "fish") {
+    return ["-l", "-c", command];
+  }
+
+  return ["-c", command];
 }
 
 function appendWithLimit(chunks: string[], chunk: string): void {

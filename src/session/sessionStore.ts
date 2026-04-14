@@ -49,6 +49,17 @@ function normalizeWorkspace(workspace: string): string {
   return path.resolve(workspace);
 }
 
+function normalizeWorkspaceList(workspaces: string[]): string[] {
+  const normalized: string[] = [];
+  for (const workspace of workspaces) {
+    const nextWorkspace = normalizeWorkspace(workspace);
+    if (!normalized.includes(nextWorkspace)) {
+      normalized.push(nextWorkspace);
+    }
+  }
+  return normalized.slice(0, 20);
+}
+
 export class SessionStore {
   private state: PersistedSessionState;
   private transient: TransientState = {
@@ -184,20 +195,23 @@ export class SessionStore {
       try {
         const raw = readFileSync(this.sessionFile, "utf8");
         const parsed = JSON.parse(raw) as Partial<PersistedSessionState>;
+        const recentWorkspaces = Array.isArray(parsed.recentWorkspaces)
+          ? normalizeWorkspaceList(
+              parsed.recentWorkspaces.filter(
+                (entry): entry is string => typeof entry === "string",
+              ),
+            )
+          : [];
         return {
           commandHistory: Array.isArray(parsed.commandHistory)
             ? parsed.commandHistory.filter(
                 (entry): entry is string => typeof entry === "string",
               )
             : [],
-          recentWorkspaces: Array.isArray(parsed.recentWorkspaces)
-            ? parsed.recentWorkspaces.filter(
-                (entry): entry is string => typeof entry === "string",
-              )
-            : [],
+          recentWorkspaces,
           activeWorkspace:
             typeof parsed.activeWorkspace === "string"
-              ? parsed.activeWorkspace
+              ? normalizeWorkspace(parsed.activeWorkspace)
               : initialWorkspace
                 ? normalizeWorkspace(initialWorkspace)
                 : null,
