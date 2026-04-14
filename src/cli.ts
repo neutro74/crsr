@@ -32,7 +32,7 @@ export function parseCliArguments(argv: string[]): CliParseResult {
   const options: CliOptions = { oneShot: false, update: false };
 
   for (let index = 0; index < argv.length; index += 1) {
-    const token = argv[index];
+    const token = argv[index]!;
     if (token === "--help" || token === "-h") return { kind: "help" };
     if (token === "--version" || token === "-v") return { kind: "version" };
 
