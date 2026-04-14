@@ -11,7 +11,14 @@ import { getTheme, nextThemeId, prevThemeId, THEMES, type Theme } from "./themes
 import { ShellRouter } from "./router.js";
 import { runSelfUpdate } from "../update.js";
 
-type EntryTone = "system" | "command" | "stdout" | "stderr" | "partial";
+type EntryTone =
+  | "system"
+  | "command"
+  | "stdout"
+  | "stderr"
+  | "partial"
+  | "thinking"
+  | "subagent";
 
 interface LogEntry {
   id: string;
@@ -27,6 +34,8 @@ interface TabState {
   statusLine: string;
   partialEntryId: string;
   partialCreated: boolean;
+  thinkingEntryId: string;
+  thinkingCreated: boolean;
 }
 
 export interface AppProps {
@@ -207,12 +216,35 @@ function pushEntry(entries: LogEntry[], tone: EntryTone, text: string): void {
   entries.push({ id: nextId(), tone, text: normalized, time: timestamp() });
 }
 
+function appendToEntry(
+  entries: LogEntry[],
+  entryId: string,
+  tone: EntryTone,
+  text: string,
+): void {
+  const clean = text.length > 0 ? text : "";
+  const existing = entries.find((entry) => entry.id === entryId);
+  if (existing) {
+    existing.text += clean;
+    return;
+  }
+
+  entries.push({
+    id: entryId,
+    tone,
+    text: clean,
+    time: timestamp(),
+  });
+}
+
 function chipForTone(tone: EntryTone, theme: Theme): string {
   switch (tone) {
     case "command": return `{${theme.chipYou}-fg}[you]{/}`;
     case "stderr":  return `{${theme.chipErr}-fg}[err]{/}`;
     case "stdout":  return `{${theme.chipOut}-fg}[out]{/}`;
     case "partial": return `{${theme.chipAi}-fg}[ai]{/}`;
+    case "thinking": return `{${theme.dim}-fg}[think]{/}`;
+    case "subagent": return `{${theme.accent}-fg}[task]{/}`;
     case "system":
     default:        return `{${theme.chipSys}-fg}[—]{/}`;
   }
@@ -224,6 +256,8 @@ function colorForTone(tone: EntryTone, theme: Theme): string {
     case "stderr":  return `${theme.error}-fg`;
     case "stdout":  return `${theme.muted}-fg`;
     case "partial": return `${theme.fg}-fg`;
+    case "thinking": return `${theme.dim}-fg`;
+    case "subagent": return `${theme.accent}-fg`;
     case "system":
     default:        return `${theme.muted}-fg`;
   }
@@ -233,10 +267,10 @@ function renderEntry(entry: LogEntry, theme: Theme): string {
   const timeTag = `{${theme.dim}-fg}[${entry.time}]{/}`;
   const chip = chipForTone(entry.tone, theme);
   const color = colorForTone(entry.tone, theme);
-  const isPartial = entry.tone === "partial";
+  const isMarkdown = entry.tone === "partial" || entry.tone === "subagent";
 
-  const continuationIndent = isPartial ? "  " : " ".repeat(18);
-  const lines = isPartial
+  const continuationIndent = isMarkdown ? "  " : " ".repeat(18);
+  const lines = isMarkdown
     ? applyMarkdown(entry.text, theme).split("\n")
     : entry.text.split("\n").map((line) => escapeTags(stripAnsi(line)));
 
@@ -368,6 +402,8 @@ export async function runApp({
       statusLine: "ready",
       partialEntryId: nextId(),
       partialCreated: false,
+      thinkingEntryId: nextId(),
+      thinkingCreated: false,
     };
   }
 
@@ -568,6 +604,7 @@ export async function runApp({
   let autoScroll = true;
   let destroyed = false;
   let frameIndex = 0;
+  let pendingRenderTimer: ReturnType<typeof setTimeout> | null = null;
 
   pushEntry(
     activeTab().entries,
@@ -578,6 +615,17 @@ export async function runApp({
   function refreshSnapshot(): void {
     snapshot = store.getSnapshot();
     theme = getTheme(snapshot.theme);
+  }
+
+  function requestRender(): void {
+    if (destroyed || pendingRenderTimer) {
+      return;
+    }
+
+    pendingRenderTimer = setTimeout(() => {
+      pendingRenderTimer = null;
+      renderUi();
+    }, 16);
   }
 
   function getInputValue(): string {
@@ -1077,6 +1125,8 @@ export async function runApp({
       tab.statusLine = outcome.label;
       tab.partialEntryId = nextId();
       tab.partialCreated = false;
+      tab.thinkingEntryId = nextId();
+      tab.thinkingCreated = false;
       renderUi();
 
       const emitEvent = (event: StreamEvent): void => {
@@ -1084,31 +1134,48 @@ export async function runApp({
         switch (event.type) {
           case "status":
             tab.statusLine = event.message;
-            if (tab === currentTab) renderUi();
+            if (tab === currentTab) requestRender();
             break;
           case "stderr":
             pushEntry(tab.entries, "stderr", stripAnsi(event.text));
-            if (tab === currentTab) renderUi();
+            if (tab === currentTab) requestRender();
             break;
           case "stdout":
             pushEntry(tab.entries, "stdout", stripAnsi(event.text));
-            if (tab === currentTab) renderUi();
+            if (tab === currentTab) requestRender();
             break;
           case "partial": {
             const clean = stripAnsi(event.text);
             if (!tab.partialCreated) {
               tab.partialCreated = true;
-              tab.entries.push({
-                id: tab.partialEntryId,
-                tone: "partial",
-                text: clean,
-                time: timestamp(),
-              });
-            } else {
-              const entry = tab.entries.find((e) => e.id === tab.partialEntryId);
-              if (entry) entry.text += clean;
             }
-            if (tab === currentTab) renderUi();
+            appendToEntry(tab.entries, tab.partialEntryId, "partial", clean);
+            if (tab === currentTab) requestRender();
+            break;
+          }
+          case "thinking": {
+            tab.thinkingCreated = true;
+            appendToEntry(tab.entries, tab.thinkingEntryId, "thinking", stripAnsi(event.text));
+            if (tab === currentTab) requestRender();
+            break;
+          }
+          case "thinking-complete":
+            if (tab.thinkingCreated) {
+              tab.thinkingCreated = false;
+              tab.thinkingEntryId = nextId();
+            }
+            if (tab === currentTab) {
+              requestRender();
+            }
+            break;
+          case "subagent": {
+            const text = event.phase === "started"
+              ? `Started subagent: ${event.description}`
+              : event.summary
+                ? `Completed subagent: ${event.description}\n${event.summary}`
+                : `Completed subagent: ${event.description}`;
+            pushEntry(tab.entries, "subagent", text);
+            if (tab === currentTab) requestRender();
             break;
           }
           case "json":
@@ -1144,6 +1211,10 @@ export async function runApp({
     if (destroyed) return;
     destroyed = true;
     clearInterval(animationTimer);
+    if (pendingRenderTimer) {
+      clearTimeout(pendingRenderTimer);
+      pendingRenderTimer = null;
+    }
     try {
       const maybeScreen = screen as blessed.Widgets.Screen & {
         program?: { destroy?: () => void; isAlt?: boolean };

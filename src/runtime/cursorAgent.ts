@@ -27,6 +27,14 @@ export type StreamEvent =
   | { type: "stdout"; text: string }
   | { type: "stderr"; text: string }
   | { type: "partial"; text: string }
+  | { type: "thinking"; text: string }
+  | { type: "thinking-complete" }
+  | {
+      type: "subagent";
+      phase: "started" | "completed";
+      description: string;
+      summary?: string;
+    }
   | { type: "json"; payload: unknown };
 
 type StreamCallback = (event: StreamEvent) => void;
@@ -152,6 +160,80 @@ function createLineDecoder(
       }
     },
   };
+}
+
+function extractSubagentDescription(payload: Record<string, unknown>): string | null {
+  const toolCall = payload.tool_call;
+  if (!toolCall || typeof toolCall !== "object") {
+    return null;
+  }
+
+  const taskToolCall = (toolCall as Record<string, unknown>).taskToolCall;
+  if (!taskToolCall || typeof taskToolCall !== "object") {
+    return null;
+  }
+
+  const args = (taskToolCall as Record<string, unknown>).args;
+  if (!args || typeof args !== "object") {
+    return "Subagent";
+  }
+
+  const candidate = args as Record<string, unknown>;
+  if (typeof candidate.description === "string" && candidate.description.trim().length > 0) {
+    return candidate.description.trim();
+  }
+
+  if (typeof candidate.prompt === "string" && candidate.prompt.trim().length > 0) {
+    return candidate.prompt.trim();
+  }
+
+  return "Subagent";
+}
+
+function extractSubagentSummary(payload: Record<string, unknown>): string | null {
+  const toolCall = payload.tool_call;
+  if (!toolCall || typeof toolCall !== "object") {
+    return null;
+  }
+
+  const taskToolCall = (toolCall as Record<string, unknown>).taskToolCall;
+  if (!taskToolCall || typeof taskToolCall !== "object") {
+    return null;
+  }
+
+  const result = (taskToolCall as Record<string, unknown>).result;
+  if (!result || typeof result !== "object") {
+    return null;
+  }
+
+  const success = (result as Record<string, unknown>).success;
+  if (!success || typeof success !== "object") {
+    return null;
+  }
+
+  const conversationSteps = (success as Record<string, unknown>).conversationSteps;
+  if (!Array.isArray(conversationSteps)) {
+    return null;
+  }
+
+  for (let index = conversationSteps.length - 1; index >= 0; index -= 1) {
+    const step = conversationSteps[index];
+    if (!step || typeof step !== "object") {
+      continue;
+    }
+
+    const assistantMessage = (step as Record<string, unknown>).assistantMessage;
+    if (!assistantMessage || typeof assistantMessage !== "object") {
+      continue;
+    }
+
+    const text = (assistantMessage as Record<string, unknown>).text;
+    if (typeof text === "string" && text.trim().length > 0) {
+      return text.trim();
+    }
+  }
+
+  return null;
 }
 
 export class CursorAgentAdapter {
@@ -287,6 +369,39 @@ export class CursorAgentAdapter {
                   assistantBuffer += nextText;
                   emittedAssistantText = true;
                   onEvent({ type: "partial", text: nextText });
+                }
+              }
+            }
+
+            if (
+              candidate.type === "thinking" &&
+              candidate.subtype === "delta" &&
+              typeof candidate.text === "string" &&
+              candidate.text.length > 0
+            ) {
+              onEvent({ type: "thinking", text: candidate.text });
+            }
+
+            if (candidate.type === "thinking" && candidate.subtype === "completed") {
+              onEvent({ type: "thinking-complete" });
+            }
+
+            if (candidate.type === "tool_call") {
+              const description = extractSubagentDescription(candidate);
+              if (description) {
+                if (candidate.subtype === "started") {
+                  onEvent({
+                    type: "subagent",
+                    phase: "started",
+                    description,
+                  });
+                } else if (candidate.subtype === "completed") {
+                  onEvent({
+                    type: "subagent",
+                    phase: "completed",
+                    description,
+                    summary: extractSubagentSummary(candidate) ?? undefined,
+                  });
                 }
               }
             }

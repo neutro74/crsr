@@ -118,7 +118,20 @@ async function runOneShotCommand(
           case "stderr":
             process.stderr.write(event.text);
             break;
+          case "thinking":
+            process.stderr.write(`[thinking] ${event.text}`);
+            break;
+          case "subagent":
+            process.stderr.write(
+              event.phase === "started"
+                ? `\n[subagent] ${event.description}\n`
+                : event.summary
+                  ? `\n[subagent done] ${event.description}\n${event.summary}\n`
+                  : `\n[subagent done] ${event.description}\n`,
+            );
+            break;
           case "status":
+          case "thinking-complete":
           case "json":
             break;
         }

@@ -4,7 +4,7 @@
 
 It gives Cursor Agent a dedicated TUI with persistent session state, slash commands, local shell mode, workspace switching, and a cleaner “stay in the terminal” workflow for both interactive use and one-shot automation.
 
-**Latest release:** [v1.0.1](https://github.com/neutro74/crsr/releases/tag/v1.0.1) (`crsr --version` should print `1.0.1` when built from this tag).
+**Latest release:** [v1.0.2](https://github.com/neutro74/crsr/releases/tag/v1.0.2) (`crsr --version` should print `1.0.2` when built from this tag).
 
 ## What crsr Does
 
@@ -20,6 +20,7 @@ It gives Cursor Agent a dedicated TUI with persistent session state, slash comma
 - **Settings panel:** edit session options without memorizing slash commands (`/settings`).
 - **Vim-style bindings:** optional (`/vim`): transcript scroll, ESC normal mode, `i` / Enter back to insert.
 - **Neovim:** `/nvim [file]` suspends the TUI and opens Neovim in the workspace.
+- **Thinking + subagents:** shows darker thinking text and subagent activity in the transcript.
 - Install as a local Node wrapper from this repo, or use **standalone binaries** from GitHub Releases (Linux, macOS, Windows x64).
 
 ## Screenshots
