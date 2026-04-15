@@ -26,6 +26,14 @@ interface ProcessWithPkg extends NodeJS.Process {
   pkg?: unknown;
 }
 
+function normalizeReleaseVersion(value: string | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+
+  return value.trim().replace(/^v/i, "") || null;
+}
+
 /**
  * GitHub release asset filenames (see `npm run package:linux` / multi-target `pkg` in README).
  */
@@ -171,6 +179,11 @@ export async function runSelfUpdate(): Promise<void> {
   process.stdout.write(`Checking the latest ${APP_NAME} release on GitHub...\n`);
   const release = await fetchLatestRelease();
   const releaseName = release.name ?? release.tag_name ?? "latest release";
+  const latestVersion = normalizeReleaseVersion(release.tag_name ?? release.name);
+  if (latestVersion === APP_VERSION) {
+    process.stdout.write(`${APP_NAME} is already up to date (${APP_VERSION}).\n`);
+    return;
+  }
   const asset = release.assets?.find((candidate) => candidate.name === assetName);
 
   if (!asset) {

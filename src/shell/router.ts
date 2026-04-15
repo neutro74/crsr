@@ -47,9 +47,26 @@ function tokenize(input: string): string[] {
   let quote: '"' | "'" | null = null;
   let escaping = false;
 
+  const pushCurrent = (): void => {
+    if (current.length > 0) {
+      tokens.push(current);
+      current = "";
+    }
+  };
+
   for (const character of input.trim()) {
+    if (quote === "'") {
+      if (character === "'") {
+        quote = null;
+      } else {
+        current += character;
+      }
+      continue;
+    }
+
     if (escaping) {
-      current += character;
+      const canEscape = /\s/.test(character) || character === '"' || character === "'" || character === "\\";
+      current += canEscape ? character : `\\${character}`;
       escaping = false;
       continue;
     }
@@ -59,8 +76,8 @@ function tokenize(input: string): string[] {
       continue;
     }
 
-    if (quote) {
-      if (character === quote) {
+    if (quote === '"') {
+      if (character === '"') {
         quote = null;
       } else {
         current += character;
@@ -74,20 +91,22 @@ function tokenize(input: string): string[] {
     }
 
     if (/\s/.test(character)) {
-      if (current.length > 0) {
-        tokens.push(current);
-        current = "";
-      }
+      pushCurrent();
       continue;
     }
 
     current += character;
   }
 
-  if (current.length > 0) {
-    tokens.push(current);
+  if (escaping) {
+    current += "\\";
   }
 
+  if (quote) {
+    throw new Error("Unterminated quote in command. Close the quote and try again.");
+  }
+
+  pushCurrent();
   return tokens;
 }
 
@@ -133,7 +152,16 @@ export class ShellRouter {
       return this.runPrompt(input);
     }
 
-    const tokens = tokenize(input.slice(1));
+    let tokens: string[];
+    try {
+      tokens = tokenize(input.slice(1));
+    } catch (error) {
+      return {
+        kind: "message",
+        title: "Command",
+        body: error instanceof Error ? error.message : "Unable to parse command.",
+      };
+    }
     const [command, ...args] = tokens;
 
     switch (command) {

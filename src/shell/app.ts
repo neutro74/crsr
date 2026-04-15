@@ -757,7 +757,8 @@ export async function runApp({
       return;
     }
     if (key.name === "down") {
-      paletteSelectedIndex = Math.min(paletteResults.length - 1, paletteSelectedIndex + 1);
+      const lastIndex = Math.max(0, paletteResults.length - 1);
+      paletteSelectedIndex = Math.min(lastIndex, paletteSelectedIndex + 1);
       renderPaletteContent();
       screen.render();
       return;
