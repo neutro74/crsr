@@ -59,6 +59,7 @@ async function resolveInstallPath(): Promise<string> {
 
   const wrapperPath = process.env.CRSR_INSTALL_PATH?.trim();
   if (wrapperPath) {
+    await access(wrapperPath);
     return wrapperPath;
   }
 
@@ -88,10 +89,6 @@ async function fetchLatestRelease(): Promise<LatestReleaseResponse> {
 function getDownloadUrl(asset: ReleaseAsset): string {
   if (asset.browser_download_url) {
     return asset.browser_download_url;
-  }
-
-  if (asset.url) {
-    return asset.url;
   }
 
   throw new Error(`Release asset "${asset.name}" does not include a download URL.`);

@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import path from "node:path";
 import type { CommandRunResult, StreamEvent } from "./cursorAgent.js";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -6,16 +7,68 @@ const MAX_CAPTURE_BYTES = 64 * 1024;
 
 type StreamCallback = (event: StreamEvent) => void;
 
+interface ShellLaunch {
+  shell: string;
+  args: string[];
+}
+
 function getChunkSize(chunks: string[]): number {
   return chunks.reduce((total, item) => total + item.length, 0);
 }
 
-function getShellInvocation(shell: string, command: string): string[] {
-  if (process.platform === "win32") {
-    return ["-Command", command];
+function getShellBasename(shell: string): string {
+  return path.basename(shell).toLowerCase();
+}
+
+export function buildShellLaunch(
+  command: string,
+  platform: NodeJS.Platform = process.platform,
+  configuredShell?: string,
+  windowsCommandShell?: string,
+): ShellLaunch {
+  if (platform === "win32") {
+    const preferredShell =
+      configuredShell?.trim() ||
+      process.env.ComSpec?.trim() ||
+      "powershell.exe";
+    const shellName = getShellBasename(preferredShell);
+
+    if (
+      shellName === "bash" ||
+      shellName === "zsh" ||
+      shellName === "sh" ||
+      shellName === "fish"
+    ) {
+      return {
+        shell: preferredShell,
+        args: shellName === "fish" ? ["-c", command] : ["-lc", command],
+      };
+    }
+
+    if (shellName === "pwsh" || shellName === "pwsh.exe") {
+      return { shell: preferredShell, args: ["-NoProfile", "-Command", command] };
+    }
+
+    if (shellName === "powershell" || shellName === "powershell.exe") {
+      return { shell: preferredShell, args: ["-NoProfile", "-Command", command] };
+    }
+
+    const commandShell = windowsCommandShell?.trim() || preferredShell;
+    return { shell: commandShell, args: ["/d", "/s", "/c", command] };
   }
 
-  return ["-lc", command];
+  const shell = configuredShell?.trim() || process.env.SHELL || "bash";
+  const shellName = getShellBasename(shell);
+
+  if (shellName === "fish" || shellName === "nu" || shellName === "nushell") {
+    return { shell, args: ["-c", command] };
+  }
+
+  if (shellName === "csh" || shellName === "tcsh") {
+    return { shell, args: ["-fc", command] };
+  }
+
+  return { shell, args: ["-lc", command] };
 }
 
 function appendWithLimit(chunks: string[], chunk: string): void {
@@ -33,9 +86,12 @@ export async function runLocalShellCommand(
   cwd: string,
   onEvent: StreamCallback,
 ): Promise<CommandRunResult> {
-  const shell =
-    process.env.SHELL || (process.platform === "win32" ? "powershell" : "bash");
-  const shellArgs = getShellInvocation(shell, command);
+  const launch = buildShellLaunch(
+    command,
+    process.platform,
+    process.env.SHELL,
+    process.env.ComSpec,
+  );
   const startTime = Date.now();
   const stdoutChunks: string[] = [];
   const stderrChunks: string[] = [];
@@ -50,7 +106,7 @@ export async function runLocalShellCommand(
     let stdoutTruncated = false;
     let stderrTruncated = false;
 
-    const child = spawn(shell, shellArgs, {
+    const child = spawn(launch.shell, launch.args, {
       cwd,
       env: process.env,
       stdio: ["ignore", "pipe", "pipe"],
@@ -111,7 +167,7 @@ export async function runLocalShellCommand(
       }
 
       resolve({
-        args: [shell, ...shellArgs],
+        args: [launch.shell, ...launch.args],
         exitCode: timedOut ? 124 : (code ?? 1),
         stdout: stdoutChunks.join(""),
         stderr: stderrChunks.join(""),

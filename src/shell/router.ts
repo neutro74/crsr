@@ -17,6 +17,10 @@ import type {
 import { runLocalShellCommand } from "../runtime/localShell.js";
 import { agentCommands, sessionCommands } from "../runtime/commandCatalog.js";
 import type { SessionStore } from "../session/sessionStore.js";
+import {
+  buildWorktreeDelegateArgs,
+  tokenizeCommandInput,
+} from "./commandParsing.js";
 
 export type RouteOutcome =
   | { kind: "noop" }
@@ -39,56 +43,6 @@ function expandHome(rawPath: string): string {
   if (rawPath === "~") return os.homedir();
   if (rawPath.startsWith("~/")) return path.join(os.homedir(), rawPath.slice(2));
   return rawPath;
-}
-
-function tokenize(input: string): string[] {
-  const tokens: string[] = [];
-  let current = "";
-  let quote: '"' | "'" | null = null;
-  let escaping = false;
-
-  for (const character of input.trim()) {
-    if (escaping) {
-      current += character;
-      escaping = false;
-      continue;
-    }
-
-    if (character === "\\") {
-      escaping = true;
-      continue;
-    }
-
-    if (quote) {
-      if (character === quote) {
-        quote = null;
-      } else {
-        current += character;
-      }
-      continue;
-    }
-
-    if (character === '"' || character === "'") {
-      quote = character;
-      continue;
-    }
-
-    if (/\s/.test(character)) {
-      if (current.length > 0) {
-        tokens.push(current);
-        current = "";
-      }
-      continue;
-    }
-
-    current += character;
-  }
-
-  if (current.length > 0) {
-    tokens.push(current);
-  }
-
-  return tokens;
 }
 
 function sanitizeCommandForHistory(input: string): string {
@@ -133,8 +87,23 @@ export class ShellRouter {
       return this.runPrompt(input);
     }
 
-    const tokens = tokenize(input.slice(1));
-    const [command, ...args] = tokens;
+    const tokens = tokenizeCommandInput(input.slice(1));
+    if (!tokens.ok) {
+      return {
+        kind: "message",
+        title: "Command",
+        body: `${tokens.message}\nClose the quote or escape it with a backslash.`,
+      };
+    }
+
+    if (tokens.tokens.length === 0) {
+      return {
+        kind: "message",
+        title: "Commands",
+        body: `Type /help to see all commands.`,
+      };
+    }
+    const [command, ...args] = tokens.tokens;
 
     switch (command) {
       case undefined:
@@ -616,32 +585,16 @@ export class ShellRouter {
         return this.delegate(["--cloud"], "cloud");
 
       case "worktree": {
-        const worktreeArgs: string[] = ["-w"];
-        const remainingArgs = [...args];
-
-        const baseIndex = remainingArgs.indexOf("--base");
-        let baseBranch: string | null = null;
-        if (baseIndex !== -1) {
-          baseBranch = remainingArgs[baseIndex + 1] ?? null;
-          remainingArgs.splice(baseIndex, baseBranch ? 2 : 1);
+        const worktreeArgs = buildWorktreeDelegateArgs(args);
+        if (!worktreeArgs.ok) {
+          return {
+            kind: "message",
+            title: "Worktree",
+            body: worktreeArgs.message,
+          };
         }
 
-        const skipSetup = remainingArgs.includes("--skip-setup");
-        const filteredArgs = remainingArgs.filter((a) => a !== "--skip-setup");
-
-        if (filteredArgs.length > 0) {
-          worktreeArgs.push(filteredArgs.join(" "));
-        }
-
-        if (baseBranch) {
-          worktreeArgs.push("--worktree-base", baseBranch);
-        }
-
-        if (skipSetup) {
-          worktreeArgs.push("--skip-worktree-setup");
-        }
-
-        return this.delegate(worktreeArgs, "worktree");
+        return this.delegate(worktreeArgs.args, "worktree");
       }
 
       case "whoami":

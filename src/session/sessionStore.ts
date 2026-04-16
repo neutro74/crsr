@@ -1,4 +1,10 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import type { ShellPaths } from "../config/config.js";
 
@@ -47,6 +53,33 @@ const DEFAULT_STATE: PersistedSessionState = {
 
 function normalizeWorkspace(workspace: string): string {
   return path.resolve(workspace);
+}
+
+function createDefaultState(
+  defaults: SessionDefaults,
+  initialWorkspace?: string,
+): PersistedSessionState {
+  return {
+    ...DEFAULT_STATE,
+    model: defaults.model ?? null,
+    mode: defaults.mode ?? "normal",
+    forceMode: defaults.forceMode ?? false,
+    sandbox: defaults.sandbox ?? null,
+    approveMcps: defaults.approveMcps ?? false,
+    activeWorkspace: initialWorkspace ? normalizeWorkspace(initialWorkspace) : null,
+  };
+}
+
+function normalizeWorkspaceList(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const normalized = value
+    .filter((entry): entry is string => typeof entry === "string")
+    .map((entry) => normalizeWorkspace(entry));
+
+  return [...new Set(normalized)];
 }
 
 export class SessionStore {
@@ -190,14 +223,10 @@ export class SessionStore {
                 (entry): entry is string => typeof entry === "string",
               )
             : [],
-          recentWorkspaces: Array.isArray(parsed.recentWorkspaces)
-            ? parsed.recentWorkspaces.filter(
-                (entry): entry is string => typeof entry === "string",
-              )
-            : [],
+          recentWorkspaces: normalizeWorkspaceList(parsed.recentWorkspaces),
           activeWorkspace:
             typeof parsed.activeWorkspace === "string"
-              ? parsed.activeWorkspace
+              ? normalizeWorkspace(parsed.activeWorkspace)
               : initialWorkspace
                 ? normalizeWorkspace(initialWorkspace)
                 : null,
@@ -232,39 +261,29 @@ export class SessionStore {
           vimMode: parsed.vimMode === true,
         };
       } catch {
-        return {
-          ...DEFAULT_STATE,
-          model: this.defaults.model ?? null,
-          mode: this.defaults.mode ?? "normal",
-          forceMode: this.defaults.forceMode ?? false,
-          sandbox: this.defaults.sandbox ?? null,
-          approveMcps: this.defaults.approveMcps ?? false,
-          activeWorkspace: initialWorkspace
-            ? normalizeWorkspace(initialWorkspace)
-            : null,
-        };
+        const backupPath = `${this.sessionFile}.corrupt-${Date.now()}`;
+        try {
+          renameSync(this.sessionFile, backupPath);
+        } catch {
+          // Keep startup resilient even if the corrupt file cannot be moved aside.
+        }
+        return createDefaultState(this.defaults, initialWorkspace);
       }
     }
 
-    return {
-      ...DEFAULT_STATE,
-      model: this.defaults.model ?? null,
-      mode: this.defaults.mode ?? "normal",
-      forceMode: this.defaults.forceMode ?? false,
-      sandbox: this.defaults.sandbox ?? null,
-      approveMcps: this.defaults.approveMcps ?? false,
-      activeWorkspace: initialWorkspace
-        ? normalizeWorkspace(initialWorkspace)
-        : null,
-    };
+    return createDefaultState(this.defaults, initialWorkspace);
   }
 
   private save(): void {
-    writeFileSync(
-      this.sessionFile,
-      JSON.stringify(this.state, null, 2) + "\n",
-      "utf8",
+    const directory = path.dirname(this.sessionFile);
+    const temporaryPath = path.join(
+      directory,
+      `.${path.basename(this.sessionFile)}.${process.pid}.${Date.now()}.tmp`,
     );
+
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(temporaryPath, JSON.stringify(this.state, null, 2) + "\n", "utf8");
+    renameSync(temporaryPath, this.sessionFile);
   }
 }
 
