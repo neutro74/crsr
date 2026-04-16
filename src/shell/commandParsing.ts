@@ -144,7 +144,8 @@ export function parseSlashInput(input: string): SlashParseResult {
     };
   }
 
-  const [command, ...args] = parsedTokens.tokens;
+  const [commandToken, ...args] = parsedTokens.tokens;
+  const command = commandToken!;
   if (command === "worktree") {
     const worktreeArgs = buildWorktreeDelegateArgs(args);
     if (!worktreeArgs.ok) {
