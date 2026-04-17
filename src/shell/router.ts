@@ -41,29 +41,68 @@ function expandHome(rawPath: string): string {
   return rawPath;
 }
 
-function tokenize(input: string): string[] {
+type TokenizeResult =
+  | { ok: true; tokens: string[] }
+  | { ok: false; error: string };
+
+export function tokenizeCommandInput(input: string): TokenizeResult {
   const tokens: string[] = [];
   let current = "";
   let quote: '"' | "'" | null = null;
-  let escaping = false;
 
-  for (const character of input.trim()) {
-    if (escaping) {
-      current += character;
-      escaping = false;
-      continue;
+  const flushCurrent = (): void => {
+    if (current.length > 0) {
+      tokens.push(current);
+      current = "";
     }
+  };
 
-    if (character === "\\") {
-      escaping = true;
-      continue;
-    }
+  const source = input.trim();
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index]!;
+    const nextCharacter = source[index + 1];
 
     if (quote) {
+      if (quote === "'" && character !== "'") {
+        current += character;
+        continue;
+      }
+
+      if (quote === '"' && character === "\\") {
+        if (
+          nextCharacter === '"' ||
+          nextCharacter === "\\" ||
+          nextCharacter === "$" ||
+          nextCharacter === "`"
+        ) {
+          current += nextCharacter;
+          index += 1;
+        } else {
+          current += "\\";
+        }
+        continue;
+      }
+
       if (character === quote) {
         quote = null;
       } else {
         current += character;
+      }
+      continue;
+    }
+
+    if (character === "\\") {
+      if (
+        nextCharacter !== undefined &&
+        (/\s/u.test(nextCharacter) ||
+          nextCharacter === '"' ||
+          nextCharacter === "'" ||
+          nextCharacter === "\\")
+      ) {
+        current += nextCharacter;
+        index += 1;
+      } else {
+        current += "\\";
       }
       continue;
     }
@@ -74,21 +113,23 @@ function tokenize(input: string): string[] {
     }
 
     if (/\s/.test(character)) {
-      if (current.length > 0) {
-        tokens.push(current);
-        current = "";
-      }
+      flushCurrent();
       continue;
     }
 
     current += character;
   }
 
-  if (current.length > 0) {
-    tokens.push(current);
+  if (quote) {
+    return {
+      ok: false,
+      error:
+        "Unterminated quoted string. Close the quote or escape spaces with backslashes.",
+    };
   }
 
-  return tokens;
+  flushCurrent();
+  return { ok: true, tokens };
 }
 
 function sanitizeCommandForHistory(input: string): string {
@@ -133,8 +174,16 @@ export class ShellRouter {
       return this.runPrompt(input);
     }
 
-    const tokens = tokenize(input.slice(1));
-    const [command, ...args] = tokens;
+    const tokenized = tokenizeCommandInput(input.slice(1));
+    if (!tokenized.ok) {
+      return {
+        kind: "message",
+        title: "Parse Error",
+        body: tokenized.error,
+      };
+    }
+
+    const [command, ...args] = tokenized.tokens;
 
     switch (command) {
       case undefined:
