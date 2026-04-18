@@ -17,6 +17,7 @@ import type {
 import { runLocalShellCommand } from "../runtime/localShell.js";
 import { agentCommands, sessionCommands } from "../runtime/commandCatalog.js";
 import type { SessionStore } from "../session/sessionStore.js";
+import { tokenize } from "./tokenize.js";
 
 export type RouteOutcome =
   | { kind: "noop" }
@@ -39,56 +40,6 @@ function expandHome(rawPath: string): string {
   if (rawPath === "~") return os.homedir();
   if (rawPath.startsWith("~/")) return path.join(os.homedir(), rawPath.slice(2));
   return rawPath;
-}
-
-function tokenize(input: string): string[] {
-  const tokens: string[] = [];
-  let current = "";
-  let quote: '"' | "'" | null = null;
-  let escaping = false;
-
-  for (const character of input.trim()) {
-    if (escaping) {
-      current += character;
-      escaping = false;
-      continue;
-    }
-
-    if (character === "\\") {
-      escaping = true;
-      continue;
-    }
-
-    if (quote) {
-      if (character === quote) {
-        quote = null;
-      } else {
-        current += character;
-      }
-      continue;
-    }
-
-    if (character === '"' || character === "'") {
-      quote = character;
-      continue;
-    }
-
-    if (/\s/.test(character)) {
-      if (current.length > 0) {
-        tokens.push(current);
-        current = "";
-      }
-      continue;
-    }
-
-    current += character;
-  }
-
-  if (current.length > 0) {
-    tokens.push(current);
-  }
-
-  return tokens;
 }
 
 function sanitizeCommandForHistory(input: string): string {
@@ -133,7 +84,18 @@ export class ShellRouter {
       return this.runPrompt(input);
     }
 
-    const tokens = tokenize(input.slice(1));
+    let tokens: string[];
+    try {
+      tokens = tokenize(input.slice(1).trim());
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : `Unable to parse command: ${String(error)}`;
+      return {
+        kind: "message",
+        title: "Command Parse Error",
+        body: message,
+      };
+    }
     const [command, ...args] = tokens;
 
     switch (command) {
