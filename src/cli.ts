@@ -51,6 +51,10 @@ export function parseCliArguments(argv: string[]): CliParseResult {
       continue;
     }
 
+    if (token === undefined) {
+      break;
+    }
+
     if (token.startsWith("-")) {
       throw new Error(`Unknown option: ${token}\nRun 'crsr --help' to see supported flags.`);
     }
