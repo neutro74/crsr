@@ -1,6 +1,6 @@
 {
   "name": "crsr",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Terminal wrapper shell for Cursor Agent",
   "type": "module",
   "main": "dist/crsr.cjs",
@@ -15,7 +15,7 @@
     "prepackage:linux": "npm run prepare:version",
     "package:linux": "npm run bundle && mkdir -p release && pkg package.json --targets node18-linux-x64 --output release/crsr-linux-x64 --public-packages '*'",
     "prepackage:macos": "npm run prepare:version",
-    "package:macos": "npm run bundle && mkdir -p release && pkg package.json --targets node18-macos-x64,node18-macos-arm64 --out-path release --public-packages '*'",
+    "package:macos": "npm run bundle && mkdir -p release && pkg package.json --targets node18-macos-x64,node18-macos-arm64 --out-path release --public-packages '*' && mv -f release/crsr-macos-arm64 release/crsr-macos-arm64 && mv -f release/crsr-macos-x64 release/crsr-macos-x64",
     "prepackage:windows": "npm run prepare:version",
     "package:windows": "npm run bundle && mkdir -p release && pkg package.json --targets node18-win-x64 --output release/crsr-win-x64.exe --public-packages '*'",
     "package:all": "npm run package:linux && npm run package:macos && npm run package:windows",

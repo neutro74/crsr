@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import type { CommandRunResult, StreamEvent } from "./cursorAgent.js";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
+const FORCE_KILL_GRACE_MS = 2_000;
 const MAX_CAPTURE_BYTES = 64 * 1024;
 
 type StreamCallback = (event: StreamEvent) => void;
@@ -49,6 +50,7 @@ export async function runLocalShellCommand(
     let timedOut = false;
     let stdoutTruncated = false;
     let stderrTruncated = false;
+    let forceKillTimer: NodeJS.Timeout | null = null;
 
     const child = spawn(shell, shellArgs, {
       cwd,
@@ -59,6 +61,9 @@ export async function runLocalShellCommand(
     const timeout = setTimeout(() => {
       timedOut = true;
       child.kill("SIGTERM");
+      forceKillTimer = setTimeout(() => {
+        child.kill("SIGKILL");
+      }, FORCE_KILL_GRACE_MS);
     }, DEFAULT_TIMEOUT_MS);
 
     child.stdout.on("data", (chunk: Buffer | string) => {
@@ -83,11 +88,17 @@ export async function runLocalShellCommand(
 
     child.on("error", (error) => {
       clearTimeout(timeout);
+      if (forceKillTimer) {
+        clearTimeout(forceKillTimer);
+      }
       reject(error);
     });
 
     child.on("close", (code) => {
       clearTimeout(timeout);
+      if (forceKillTimer) {
+        clearTimeout(forceKillTimer);
+      }
 
       if (timedOut) {
         onEvent({

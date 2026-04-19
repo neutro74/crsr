@@ -36,9 +36,12 @@ export function getReleaseAssetName(): string {
     return "crsr-linux-x64";
   }
 
-  if (platform === "darwin" && (arch === "x64" || arch === "arm64")) {
-    // Single macOS build is x64; Apple Silicon runs it under Rosetta when needed.
+  if (platform === "darwin" && arch === "x64") {
     return "crsr-macos-x64";
+  }
+
+  if (platform === "darwin" && arch === "arm64") {
+    return "crsr-macos-arm64";
   }
 
   if (platform === "win32" && arch === "x64") {
@@ -112,6 +115,42 @@ function verifyDigest(data: Buffer, digest: string | undefined): void {
   }
 }
 
+async function pathExists(targetPath: string): Promise<boolean> {
+  try {
+    await access(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function replaceTargetFile(
+  temporaryPath: string,
+  targetPath: string,
+  backupPath: string,
+): Promise<void> {
+  let movedExistingTarget = false;
+
+  if (await pathExists(targetPath)) {
+    await rm(backupPath, { force: true });
+    await rename(targetPath, backupPath);
+    movedExistingTarget = true;
+  }
+
+  try {
+    await rename(temporaryPath, targetPath);
+    if (movedExistingTarget) {
+      await rm(backupPath, { force: true });
+    }
+  } catch (error) {
+    if (movedExistingTarget) {
+      await rm(targetPath, { force: true }).catch(() => undefined);
+      await rename(backupPath, targetPath).catch(() => undefined);
+    }
+    throw error;
+  }
+}
+
 async function replaceInstalledBinary(
   targetPath: string,
   assetName: string,
@@ -122,9 +161,14 @@ async function replaceInstalledBinary(
   const isWindows = process.platform === "win32";
   const safeBase = assetName.replace(/\.exe$/i, "").replace(/[^a-zA-Z0-9._-]+/g, "_");
   const tempSuffix = isWindows ? ".exe" : "";
+  const nonce = `${process.pid}-${Date.now()}`;
   const temporaryPath = path.join(
     parentDirectory,
-    `.${safeBase}.download-${process.pid}-${Date.now()}${tempSuffix}`,
+    `.${safeBase}.download-${nonce}${tempSuffix}`,
+  );
+  const backupPath = path.join(
+    parentDirectory,
+    `.${safeBase}.backup-${nonce}${tempSuffix}`,
   );
 
   await mkdir(parentDirectory, { recursive: true });
@@ -154,9 +198,10 @@ async function replaceInstalledBinary(
     if (!isWindows) {
       await chmod(temporaryPath, 0o755);
     }
-    await rename(temporaryPath, targetPath);
+    await replaceTargetFile(temporaryPath, targetPath, backupPath);
   } finally {
     await rm(temporaryPath, { force: true }).catch(() => undefined);
+    await rm(backupPath, { force: true }).catch(() => undefined);
   }
 }
 

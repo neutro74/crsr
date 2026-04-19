@@ -16,6 +16,10 @@ interface CliOptions {
   workspace?: string;
 }
 
+interface CliError {
+  error: string;
+}
+
 function renderHelp(): void {
   console.log(`crsr - terminal wrapper for cursor-agent
 
@@ -40,13 +44,22 @@ function renderVersion(): void {
 
 function parseCliArguments(
   argv: string[],
-): CliOptions | "help" | "version" {
+): CliOptions | CliError | "help" | "version" {
   const options: CliOptions = { oneShot: false, update: false };
 
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
     if (token === "--help" || token === "-h") return "help";
     if (token === "--version" || token === "-v") return "version";
+
+    if (token.startsWith("--workspace=")) {
+      const workspace = token.slice("--workspace=".length).trim();
+      if (workspace.length === 0) {
+        return { error: "--workspace requires a path." };
+      }
+      options.workspace = workspace;
+      continue;
+    }
 
     if (token === "--once") {
       options.oneShot = true;
@@ -59,7 +72,20 @@ function parseCliArguments(
     }
 
     if (token === "--workspace") {
-      options.workspace = argv[index + 1];
+      const workspace = argv[index + 1];
+      if (
+        workspace === undefined ||
+        workspace === "--help" ||
+        workspace === "-h" ||
+        workspace === "--version" ||
+        workspace === "-v" ||
+        workspace === "--once" ||
+        workspace === "--update" ||
+        workspace === "--workspace"
+      ) {
+        return { error: "--workspace requires a path." };
+      }
+      options.workspace = workspace;
       index += 1;
       continue;
     }
@@ -158,6 +184,11 @@ async function runOneShotCommand(
 }
 
 const cliOptions = parseCliArguments(process.argv.slice(2));
+if (typeof cliOptions === "object" && "error" in cliOptions) {
+  console.error(cliOptions.error);
+  process.exit(1);
+}
+
 if (cliOptions === "help") {
   renderHelp();
   process.exit(0);
