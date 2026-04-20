@@ -36,9 +36,12 @@ export function getReleaseAssetName(): string {
     return "crsr-linux-x64";
   }
 
-  if (platform === "darwin" && (arch === "x64" || arch === "arm64")) {
-    // Single macOS build is x64; Apple Silicon runs it under Rosetta when needed.
+  if (platform === "darwin" && arch === "x64") {
     return "crsr-macos-x64";
+  }
+
+  if (platform === "darwin" && arch === "arm64") {
+    return "crsr-macos-arm64";
   }
 
   if (platform === "win32" && arch === "x64") {
@@ -47,8 +50,21 @@ export function getReleaseAssetName(): string {
 
   throw new Error(
     `No GitHub release binary for this platform (${platform}-${arch}). ` +
-      "Supported: linux-x64, darwin-x64|arm64, win32-x64.",
+      "Supported: linux-x64, darwin-x64, darwin-arm64, win32-x64.",
   );
+}
+
+function normalizeReleaseVersion(value: string | undefined): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+
+  return trimmed.replace(/^v/u, "");
 }
 
 async function resolveInstallPath(): Promise<string> {
@@ -171,6 +187,13 @@ export async function runSelfUpdate(): Promise<void> {
   process.stdout.write(`Checking the latest ${APP_NAME} release on GitHub...\n`);
   const release = await fetchLatestRelease();
   const releaseName = release.name ?? release.tag_name ?? "latest release";
+  const releaseVersion = normalizeReleaseVersion(release.tag_name ?? release.name);
+  if (releaseVersion === APP_VERSION) {
+    process.stdout.write(
+      `${APP_NAME} ${APP_VERSION} is already up to date at ${installPath}.\n`,
+    );
+    return;
+  }
   const asset = release.assets?.find((candidate) => candidate.name === assetName);
 
   if (!asset) {

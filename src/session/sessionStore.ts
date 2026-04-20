@@ -1,6 +1,7 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { ShellPaths } from "../config/config.js";
+import { DEFAULT_THEME_ID, THEME_IDS } from "../shell/themes.js";
 
 interface PersistedSessionState {
   commandHistory: string[];
@@ -47,6 +48,30 @@ const DEFAULT_STATE: PersistedSessionState = {
 
 function normalizeWorkspace(workspace: string): string {
   return path.resolve(workspace);
+}
+
+function normalizeWorkspaceList(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const workspaces: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "string" || entry.trim().length === 0) {
+      continue;
+    }
+
+    const normalized = normalizeWorkspace(entry);
+    if (seen.has(normalized)) {
+      continue;
+    }
+
+    seen.add(normalized);
+    workspaces.push(normalized);
+  }
+
+  return workspaces;
 }
 
 export class SessionStore {
@@ -184,23 +209,29 @@ export class SessionStore {
       try {
         const raw = readFileSync(this.sessionFile, "utf8");
         const parsed = JSON.parse(raw) as Partial<PersistedSessionState>;
+        const recentWorkspaces = normalizeWorkspaceList(parsed.recentWorkspaces);
+        const activeWorkspace =
+          typeof parsed.activeWorkspace === "string" && parsed.activeWorkspace.trim().length > 0
+            ? normalizeWorkspace(parsed.activeWorkspace)
+            : initialWorkspace
+              ? normalizeWorkspace(initialWorkspace)
+              : null;
+
+        if (
+          activeWorkspace &&
+          !recentWorkspaces.includes(activeWorkspace)
+        ) {
+          recentWorkspaces.unshift(activeWorkspace);
+        }
+
         return {
           commandHistory: Array.isArray(parsed.commandHistory)
             ? parsed.commandHistory.filter(
                 (entry): entry is string => typeof entry === "string",
               )
             : [],
-          recentWorkspaces: Array.isArray(parsed.recentWorkspaces)
-            ? parsed.recentWorkspaces.filter(
-                (entry): entry is string => typeof entry === "string",
-              )
-            : [],
-          activeWorkspace:
-            typeof parsed.activeWorkspace === "string"
-              ? parsed.activeWorkspace
-              : initialWorkspace
-                ? normalizeWorkspace(initialWorkspace)
-                : null,
+          recentWorkspaces: recentWorkspaces.slice(0, 20),
+          activeWorkspace,
           model:
             typeof parsed.model === "string"
               ? parsed.model
@@ -228,7 +259,10 @@ export class SessionStore {
                 (entry): entry is string => typeof entry === "string",
               )
             : [],
-          theme: typeof parsed.theme === "string" ? parsed.theme : "dark",
+          theme:
+            typeof parsed.theme === "string" && THEME_IDS.includes(parsed.theme)
+              ? parsed.theme
+              : DEFAULT_THEME_ID,
           vimMode: parsed.vimMode === true,
         };
       } catch {
@@ -260,6 +294,7 @@ export class SessionStore {
   }
 
   private save(): void {
+    mkdirSync(path.dirname(this.sessionFile), { recursive: true });
     writeFileSync(
       this.sessionFile,
       JSON.stringify(this.state, null, 2) + "\n",

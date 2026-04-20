@@ -894,6 +894,15 @@ export async function runApp({
       renderUi();
       return;
     }
+    if (activeTab().busy) {
+      pushEntry(
+        activeTab().entries,
+        "system",
+        "Wait for the running command to finish before closing this tab.",
+      );
+      renderUi();
+      return;
+    }
     tabs.splice(activeTabIndex, 1);
     activeTabIndex = Math.min(activeTabIndex, tabs.length - 1);
     autoScroll = true;
@@ -1188,10 +1197,10 @@ export async function runApp({
       tab.statusLine = result.exitCode === 0 ? "ready" : `exit ${result.exitCode}`;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown wrapper error";
-      pushEntry(activeTab().entries, "stderr", message);
-      activeTab().statusLine = "error";
+      pushEntry(tab.entries, "stderr", message);
+      tab.statusLine = "error";
     } finally {
-      activeTab().busy = false;
+      tab.busy = false;
       refreshSnapshot();
       renderUi();
       if (!settingsOpen && !paletteOpen && !destroyed) {

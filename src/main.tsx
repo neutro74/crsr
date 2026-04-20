@@ -58,8 +58,21 @@ function parseCliArguments(
       continue;
     }
 
+    if (token.startsWith("--workspace=")) {
+      const workspaceValue = token.slice("--workspace=".length).trim();
+      if (workspaceValue.length === 0) {
+        throw new Error("--workspace requires a path.");
+      }
+      options.workspace = workspaceValue;
+      continue;
+    }
+
     if (token === "--workspace") {
-      options.workspace = argv[index + 1];
+      const workspaceValue = argv[index + 1]?.trim();
+      if (!workspaceValue) {
+        throw new Error("--workspace requires a path.");
+      }
+      options.workspace = workspaceValue;
       index += 1;
       continue;
     }
@@ -75,15 +88,17 @@ function normalizeInitialCommand(
   initialCommand: string | undefined,
 ): string | undefined {
   if (!initialCommand) return undefined;
-  if (initialCommand.startsWith("/")) return initialCommand;
+  const trimmedCommand = initialCommand.trim();
+  if (trimmedCommand.length === 0) return undefined;
+  if (trimmedCommand.startsWith("/")) return trimmedCommand;
 
-  const firstToken = initialCommand.trim().split(/\s+/u)[0];
+  const firstToken = trimmedCommand.split(/\s+/u)[0];
   const knownNames = new Set([
     ...allCommands.map((command) => command.name.split(" ")[0]),
     "mcp",
   ]);
 
-  return knownNames.has(firstToken) ? `/${initialCommand}` : initialCommand;
+  return knownNames.has(firstToken) ? `/${trimmedCommand}` : trimmedCommand;
 }
 
 async function runOneShotCommand(
@@ -157,7 +172,16 @@ async function runOneShotCommand(
   }
 }
 
-const cliOptions = parseCliArguments(process.argv.slice(2));
+let cliOptions: CliOptions | "help" | "version";
+try {
+  cliOptions = parseCliArguments(process.argv.slice(2));
+} catch (error) {
+  const message =
+    error instanceof Error ? error.message : "Unable to parse CLI arguments.";
+  process.stderr.write(`${message}\n`);
+  process.exit(1);
+}
+
 if (cliOptions === "help") {
   renderHelp();
   process.exit(0);
