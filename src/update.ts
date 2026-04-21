@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { access, chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { APP_NAME, APP_VERSION } from "./version.js";
@@ -36,9 +36,12 @@ export function getReleaseAssetName(): string {
     return "crsr-linux-x64";
   }
 
-  if (platform === "darwin" && (arch === "x64" || arch === "arm64")) {
-    // Single macOS build is x64; Apple Silicon runs it under Rosetta when needed.
+  if (platform === "darwin" && arch === "x64") {
     return "crsr-macos-x64";
+  }
+
+  if (platform === "darwin" && arch === "arm64") {
+    return "crsr-macos-arm64";
   }
 
   if (platform === "win32" && arch === "x64") {
@@ -47,7 +50,7 @@ export function getReleaseAssetName(): string {
 
   throw new Error(
     `No GitHub release binary for this platform (${platform}-${arch}). ` +
-      "Supported: linux-x64, darwin-x64|arm64, win32-x64.",
+      "Supported: linux-x64, darwin-x64, darwin-arm64, win32-x64.",
   );
 }
 
@@ -59,11 +62,17 @@ async function resolveInstallPath(): Promise<string> {
 
   const wrapperPath = process.env.CRSR_INSTALL_PATH?.trim();
   if (wrapperPath) {
+    if (wrapperPath === DEFAULT_INSTALL_PATH) {
+      throw new Error(
+        `Refusing to replace the local wrapper at ${wrapperPath}. Rebuild it with "npm run release" or point CRSR_INSTALL_PATH at a standalone binary.`,
+      );
+    }
     return wrapperPath;
   }
 
-  await access(DEFAULT_INSTALL_PATH);
-  return DEFAULT_INSTALL_PATH;
+  throw new Error(
+    `Unable to determine which ${APP_NAME} executable to replace. Self-update only supports standalone binaries or an explicit CRSR_INSTALL_PATH.`,
+  );
 }
 
 async function fetchLatestRelease(): Promise<LatestReleaseResponse> {
@@ -161,11 +170,7 @@ async function replaceInstalledBinary(
 }
 
 export async function runSelfUpdate(): Promise<void> {
-  const installPath = await resolveInstallPath().catch(() => {
-    throw new Error(
-      `Unable to determine which ${APP_NAME} executable to replace. Run the local wrapper install first or use the standalone GitHub release binary.`,
-    );
-  });
+  const installPath = await resolveInstallPath();
   const assetName = getReleaseAssetName();
 
   process.stdout.write(`Checking the latest ${APP_NAME} release on GitHub...\n`);

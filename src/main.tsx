@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import { statSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { loadShellConfig } from "./config/config.js";
 import { renderCommandResult } from "./output/renderers.js";
 import { CursorAgentAdapter } from "./runtime/cursorAgent.js";
@@ -15,6 +18,12 @@ interface CliOptions {
   update: boolean;
   workspace?: string;
 }
+
+type CliParseResult =
+  | { kind: "help" }
+  | { kind: "version" }
+  | { kind: "error"; message: string }
+  | { kind: "ok"; options: CliOptions };
 
 function renderHelp(): void {
   console.log(`crsr - terminal wrapper for cursor-agent
@@ -38,15 +47,38 @@ function renderVersion(): void {
   console.log(`${APP_NAME} ${APP_VERSION}`);
 }
 
+function expandHome(rawPath: string): string {
+  if (rawPath === "~") return os.homedir();
+  if (rawPath.startsWith("~/")) return path.join(os.homedir(), rawPath.slice(2));
+  return rawPath;
+}
+
+function resolveWorkspacePath(rawWorkspace: string): string {
+  const resolvedPath = path.resolve(expandHome(rawWorkspace));
+
+  let stats;
+  try {
+    stats = statSync(resolvedPath);
+  } catch {
+    throw new Error(`--workspace path does not exist: ${resolvedPath}`);
+  }
+
+  if (!stats.isDirectory()) {
+    throw new Error(`--workspace path is not a directory: ${resolvedPath}`);
+  }
+
+  return resolvedPath;
+}
+
 function parseCliArguments(
   argv: string[],
-): CliOptions | "help" | "version" {
+): CliParseResult {
   const options: CliOptions = { oneShot: false, update: false };
 
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
-    if (token === "--help" || token === "-h") return "help";
-    if (token === "--version" || token === "-v") return "version";
+    if (token === "--help" || token === "-h") return { kind: "help" };
+    if (token === "--version" || token === "-v") return { kind: "version" };
 
     if (token === "--once") {
       options.oneShot = true;
@@ -59,7 +91,15 @@ function parseCliArguments(
     }
 
     if (token === "--workspace") {
-      options.workspace = argv[index + 1];
+      const workspace = argv[index + 1];
+      if (workspace === undefined) {
+        return {
+          kind: "error",
+          message: "--workspace requires a path.",
+        };
+      }
+
+      options.workspace = workspace;
       index += 1;
       continue;
     }
@@ -68,7 +108,7 @@ function parseCliArguments(
     break;
   }
 
-  return options;
+  return { kind: "ok", options };
 }
 
 function normalizeInitialCommand(
@@ -158,17 +198,34 @@ async function runOneShotCommand(
 }
 
 const cliOptions = parseCliArguments(process.argv.slice(2));
-if (cliOptions === "help") {
+if (cliOptions.kind === "help") {
   renderHelp();
   process.exit(0);
 }
 
-if (cliOptions === "version") {
+if (cliOptions.kind === "version") {
   renderVersion();
   process.exit(0);
 }
 
-if (cliOptions.update) {
+if (cliOptions.kind === "error") {
+  console.error(cliOptions.message);
+  process.exit(1);
+}
+
+const options = cliOptions.options;
+let cliWorkspace: string | undefined;
+try {
+  cliWorkspace = options.workspace
+    ? resolveWorkspacePath(options.workspace)
+    : undefined;
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(message);
+  process.exit(1);
+}
+
+if (options.update) {
   void runSelfUpdate()
     .then(() => {
       process.exit(0);
@@ -181,7 +238,7 @@ if (cliOptions.update) {
     });
 } else {
   const config = loadShellConfig();
-  const initialWorkspace = cliOptions.workspace ?? config.workspace;
+  const initialWorkspace = cliWorkspace ?? config.workspace;
   const store = createSessionStore(config.paths, initialWorkspace, {
     model: config.defaultModel,
     mode: config.defaultMode,
@@ -190,8 +247,8 @@ if (cliOptions.update) {
     approveMcps: config.approveMcps,
   });
 
-  if (cliOptions.workspace) {
-    store.setActiveWorkspace(cliOptions.workspace);
+  if (cliWorkspace) {
+    store.setActiveWorkspace(cliWorkspace);
   }
 
   if (config.apiKey) {
@@ -200,11 +257,11 @@ if (cliOptions.update) {
 
   const adapter = new CursorAgentAdapter(config);
   const normalizedInitialCommand = normalizeInitialCommand(
-    cliOptions.initialCommand,
+    options.initialCommand,
   );
 
   void (async () => {
-    if (cliOptions.oneShot) {
+    if (options.oneShot) {
       if (!normalizedInitialCommand) {
         console.error("--once requires an initial command or prompt.");
         process.exit(1);
@@ -224,7 +281,7 @@ if (cliOptions.update) {
       adapter,
       store,
       initialCommand: normalizedInitialCommand,
-      oneShot: cliOptions.oneShot,
+      oneShot: options.oneShot,
     });
   })().catch((error: unknown) => {
     const message =
