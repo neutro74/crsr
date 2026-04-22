@@ -41,7 +41,7 @@ function expandHome(rawPath: string): string {
   return rawPath;
 }
 
-function tokenize(input: string): string[] {
+export function tokenize(input: string): string[] {
   const tokens: string[] = [];
   let current = "";
   let quote: '"' | "'" | null = null;
@@ -49,13 +49,23 @@ function tokenize(input: string): string[] {
 
   for (const character of input.trim()) {
     if (escaping) {
-      current += character;
+      if (quote) {
+        current += character;
+      } else if (/\s/u.test(character) || character === '"' || character === "'" || character === "\\") {
+        current += character;
+      } else {
+        current += `\\${character}`;
+      }
       escaping = false;
       continue;
     }
 
     if (character === "\\") {
-      escaping = true;
+      if (quote === "'") {
+        current += character;
+      } else {
+        escaping = true;
+      }
       continue;
     }
 
@@ -73,7 +83,7 @@ function tokenize(input: string): string[] {
       continue;
     }
 
-    if (/\s/.test(character)) {
+    if (/\s/u.test(character)) {
       if (current.length > 0) {
         tokens.push(current);
         current = "";
@@ -82,6 +92,14 @@ function tokenize(input: string): string[] {
     }
 
     current += character;
+  }
+
+  if (escaping) {
+    current += "\\";
+  }
+
+  if (quote) {
+    throw new Error(`Unterminated ${quote} quote.`);
   }
 
   if (current.length > 0) {
@@ -133,7 +151,17 @@ export class ShellRouter {
       return this.runPrompt(input);
     }
 
-    const tokens = tokenize(input.slice(1));
+    let tokens: string[];
+    try {
+      tokens = tokenize(input.slice(1));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        kind: "message",
+        title: "Command",
+        body: message,
+      };
+    }
     const [command, ...args] = tokens;
 
     switch (command) {

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { access, chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { APP_NAME, APP_VERSION } from "./version.js";
@@ -29,16 +29,20 @@ interface ProcessWithPkg extends NodeJS.Process {
 /**
  * GitHub release asset filenames (see `npm run package:linux` / multi-target `pkg` in README).
  */
-export function getReleaseAssetName(): string {
-  const { platform, arch } = process;
-
+export function getReleaseAssetNameForPlatform(
+  platform: NodeJS.Platform,
+  arch: string,
+): string {
   if (platform === "linux" && arch === "x64") {
     return "crsr-linux-x64";
   }
 
-  if (platform === "darwin" && (arch === "x64" || arch === "arm64")) {
-    // Single macOS build is x64; Apple Silicon runs it under Rosetta when needed.
+  if (platform === "darwin" && arch === "x64") {
     return "crsr-macos-x64";
+  }
+
+  if (platform === "darwin" && arch === "arm64") {
+    return "crsr-macos-arm64";
   }
 
   if (platform === "win32" && arch === "x64") {
@@ -47,7 +51,19 @@ export function getReleaseAssetName(): string {
 
   throw new Error(
     `No GitHub release binary for this platform (${platform}-${arch}). ` +
-      "Supported: linux-x64, darwin-x64|arm64, win32-x64.",
+      "Supported: linux-x64, darwin-x64, darwin-arm64, win32-x64.",
+  );
+}
+
+export function getReleaseAssetName(): string {
+  return getReleaseAssetNameForPlatform(process.platform, process.arch);
+}
+
+export function isLikelyLocalWrapperScript(content: string): boolean {
+  return (
+    content.startsWith("#!/bin/sh\n") &&
+    content.includes("CRSR_INSTALL_PATH=") &&
+    content.includes("exec node ")
   );
 }
 
@@ -64,6 +80,19 @@ async function resolveInstallPath(): Promise<string> {
 
   await access(DEFAULT_INSTALL_PATH);
   return DEFAULT_INSTALL_PATH;
+}
+
+async function isLocalWrapperInstall(targetPath: string): Promise<boolean> {
+  if (process.platform === "win32") {
+    return false;
+  }
+
+  try {
+    const content = await readFile(targetPath, "utf8");
+    return isLikelyLocalWrapperScript(content);
+  } catch {
+    return false;
+  }
 }
 
 async function fetchLatestRelease(): Promise<LatestReleaseResponse> {
@@ -167,6 +196,12 @@ export async function runSelfUpdate(): Promise<void> {
     );
   });
   const assetName = getReleaseAssetName();
+
+  if (await isLocalWrapperInstall(installPath)) {
+    throw new Error(
+      `Refusing to overwrite the local source wrapper at ${installPath}. Rebuild from this checkout with "npm run release", or set CRSR_INSTALL_PATH to a standalone packaged binary path before updating.`,
+    );
+  }
 
   process.stdout.write(`Checking the latest ${APP_NAME} release on GitHub...\n`);
   const release = await fetchLatestRelease();
