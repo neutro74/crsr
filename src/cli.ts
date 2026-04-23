@@ -13,6 +13,12 @@ export type CliParseResult =
   | "version"
   | { kind: "error"; message: string };
 
+export function isCliParseError(
+  value: CliParseResult,
+): value is { kind: "error"; message: string } {
+  return typeof value === "object" && value !== null && "kind" in value;
+}
+
 function parseWorkspaceValue(rawValue: string | undefined): string | null {
   if (!rawValue || rawValue === "--" || rawValue.startsWith("-")) {
     return null;

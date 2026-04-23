@@ -1,5 +1,10 @@
 #!/usr/bin/env node
-import { normalizeInitialCommand, parseCliArguments } from "./cli.js";
+import {
+  isCliParseError,
+  normalizeInitialCommand,
+  parseCliArguments,
+  type CliOptions,
+} from "./cli.js";
 import { loadShellConfig } from "./config/config.js";
 import { renderCommandResult } from "./output/renderers.js";
 import { CursorAgentAdapter } from "./runtime/cursorAgent.js";
@@ -29,6 +34,31 @@ Run 'crsr --once /help' to see all interactive commands.
 
 function renderVersion(): void {
   console.log(`${APP_NAME} ${APP_VERSION}`);
+}
+
+function exitProcess(code: number): never {
+  process.exit(code);
+}
+
+function getCliOptionsOrExit(argv: string[]): CliOptions {
+  const cliOptions = parseCliArguments(argv);
+
+  if (cliOptions === "help") {
+    renderHelp();
+    exitProcess(0);
+  }
+
+  if (cliOptions === "version") {
+    renderVersion();
+    exitProcess(0);
+  }
+
+  if (isCliParseError(cliOptions)) {
+    process.stderr.write(`${cliOptions.message}\n`);
+    exitProcess(1);
+  }
+
+  return cliOptions;
 }
 
 async function runOneShotCommand(
@@ -102,23 +132,9 @@ async function runOneShotCommand(
   }
 }
 
-const cliOptions = parseCliArguments(process.argv.slice(2));
-if (cliOptions === "help") {
-  renderHelp();
-  process.exit(0);
-}
+const parsedOptions = getCliOptionsOrExit(process.argv.slice(2));
 
-if (cliOptions === "version") {
-  renderVersion();
-  process.exit(0);
-}
-
-if (typeof cliOptions === "object" && "kind" in cliOptions && cliOptions.kind === "error") {
-  process.stderr.write(`${cliOptions.message}\n`);
-  process.exit(1);
-}
-
-if (cliOptions.update) {
+if (parsedOptions.update) {
   void runSelfUpdate()
     .then(() => {
       process.exit(0);
@@ -131,7 +147,7 @@ if (cliOptions.update) {
     });
 } else {
   const config = loadShellConfig();
-  const initialWorkspace = cliOptions.workspace ?? config.workspace;
+  const initialWorkspace = parsedOptions.workspace ?? config.workspace;
   const store = createSessionStore(config.paths, initialWorkspace, {
     model: config.defaultModel,
     mode: config.defaultMode,
@@ -140,8 +156,8 @@ if (cliOptions.update) {
     approveMcps: config.approveMcps,
   });
 
-  if (cliOptions.workspace) {
-    store.setActiveWorkspace(cliOptions.workspace);
+  if (parsedOptions.workspace) {
+    store.setActiveWorkspace(parsedOptions.workspace);
   }
 
   if (config.apiKey) {
@@ -150,11 +166,11 @@ if (cliOptions.update) {
 
   const adapter = new CursorAgentAdapter(config);
   const normalizedInitialCommand = normalizeInitialCommand(
-    cliOptions.initialCommand,
+    parsedOptions.initialCommand,
   );
 
   void (async () => {
-    if (cliOptions.oneShot) {
+    if (parsedOptions.oneShot) {
       if (!normalizedInitialCommand) {
         console.error("--once requires an initial command or prompt.");
         process.exit(1);
@@ -174,7 +190,7 @@ if (cliOptions.update) {
       adapter,
       store,
       initialCommand: normalizedInitialCommand,
-      oneShot: cliOptions.oneShot,
+      oneShot: parsedOptions.oneShot,
     });
   })().catch((error: unknown) => {
     const message =
