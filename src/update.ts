@@ -1,5 +1,13 @@
 import { createHash } from "node:crypto";
-import { access, chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  mkdir,
+  open,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { APP_NAME, APP_VERSION } from "./version.js";
@@ -27,18 +35,22 @@ interface ProcessWithPkg extends NodeJS.Process {
 }
 
 /**
- * GitHub release asset filenames (see `npm run package:linux` / multi-target `pkg` in README).
+ * GitHub release asset filenames (see packaging scripts in package.json).
  */
-export function getReleaseAssetName(): string {
-  const { platform, arch } = process;
-
+export function getReleaseAssetNameForTarget(
+  platform: NodeJS.Platform,
+  arch: string,
+): string {
   if (platform === "linux" && arch === "x64") {
     return "crsr-linux-x64";
   }
 
-  if (platform === "darwin" && (arch === "x64" || arch === "arm64")) {
-    // Single macOS build is x64; Apple Silicon runs it under Rosetta when needed.
+  if (platform === "darwin" && arch === "x64") {
     return "crsr-macos-x64";
+  }
+
+  if (platform === "darwin" && arch === "arm64") {
+    return "crsr-macos-arm64";
   }
 
   if (platform === "win32" && arch === "x64") {
@@ -47,8 +59,51 @@ export function getReleaseAssetName(): string {
 
   throw new Error(
     `No GitHub release binary for this platform (${platform}-${arch}). ` +
-      "Supported: linux-x64, darwin-x64|arm64, win32-x64.",
+      "Supported: linux-x64, darwin-x64, darwin-arm64, win32-x64.",
   );
+}
+
+export function getReleaseAssetName(): string {
+  return getReleaseAssetNameForTarget(process.platform, process.arch);
+}
+
+function normalizeReleaseVersion(tagName: string | undefined): string | null {
+  if (!tagName) {
+    return null;
+  }
+
+  const normalized = tagName.trim().replace(/^v/iu, "");
+  return normalized.length > 0 ? normalized : null;
+}
+
+export function isLatestReleaseInstalled(
+  tagName: string | undefined,
+  currentVersion = APP_VERSION,
+): boolean {
+  return normalizeReleaseVersion(tagName) === normalizeReleaseVersion(currentVersion);
+}
+
+export function isSourceWrapperScriptSnippet(snippet: string): boolean {
+  return (
+    snippet.startsWith("#!/bin/sh") &&
+    snippet.includes("CRSR_INSTALL_PATH=") &&
+    snippet.includes("exec node ")
+  );
+}
+
+async function isSourceWrapperInstall(targetPath: string): Promise<boolean> {
+  let handle;
+  try {
+    handle = await open(targetPath, "r");
+    const buffer = Buffer.alloc(512);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    const snippet = buffer.subarray(0, bytesRead).toString("utf8");
+    return isSourceWrapperScriptSnippet(snippet);
+  } catch {
+    return false;
+  } finally {
+    await handle?.close().catch(() => undefined);
+  }
 }
 
 async function resolveInstallPath(): Promise<string> {
@@ -161,16 +216,31 @@ async function replaceInstalledBinary(
 }
 
 export async function runSelfUpdate(): Promise<void> {
-  const installPath = await resolveInstallPath().catch(() => {
-    throw new Error(
-      `Unable to determine which ${APP_NAME} executable to replace. Run the local wrapper install first or use the standalone GitHub release binary.`,
-    );
-  });
   const assetName = getReleaseAssetName();
 
   process.stdout.write(`Checking the latest ${APP_NAME} release on GitHub...\n`);
   const release = await fetchLatestRelease();
   const releaseName = release.name ?? release.tag_name ?? "latest release";
+
+  if (isLatestReleaseInstalled(release.tag_name)) {
+    process.stdout.write(
+      `${APP_NAME} ${APP_VERSION} is already up to date with ${releaseName}.\n`,
+    );
+    return;
+  }
+
+  const installPath = await resolveInstallPath().catch(() => {
+    throw new Error(
+      `Unable to determine which ${APP_NAME} executable to replace. Run the local wrapper install first or use the standalone GitHub release binary.`,
+    );
+  });
+
+  if (await isSourceWrapperInstall(installPath)) {
+    throw new Error(
+      `Self-update does not replace source-checkout wrappers like ${installPath}. Run "npm run release" from this checkout again, or point CRSR_INSTALL_PATH at a standalone binary path.`,
+    );
+  }
+
   const asset = release.assets?.find((candidate) => candidate.name === assetName);
 
   if (!asset) {
