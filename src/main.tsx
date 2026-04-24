@@ -1,90 +1,17 @@
 #!/usr/bin/env node
+import {
+  normalizeInitialCommand,
+  parseCliArguments,
+  renderHelp,
+  renderVersion,
+} from "./cli.js";
 import { loadShellConfig } from "./config/config.js";
 import { renderCommandResult } from "./output/renderers.js";
 import { CursorAgentAdapter } from "./runtime/cursorAgent.js";
-import { allCommands } from "./runtime/commandCatalog.js";
 import { ShellRouter } from "./shell/router.js";
 import { runApp } from "./shell/app.js";
 import { createSessionStore } from "./session/sessionStore.js";
 import { runSelfUpdate } from "./update.js";
-import { APP_NAME, APP_VERSION } from "./version.js";
-
-interface CliOptions {
-  initialCommand?: string;
-  oneShot: boolean;
-  update: boolean;
-  workspace?: string;
-}
-
-function renderHelp(): void {
-  console.log(`crsr - terminal wrapper for cursor-agent
-
-Usage:
-  crsr [options] [initial command or prompt...]
-
-Options:
-  --workspace <path>  Set the workspace for delegated commands
-  --once              Run the initial command once and exit (headless)
-  --update            Download and replace this binary from GitHub releases
-  -h, --help          Show this help message
-  -v, --version       Show the version
-
-Interactive commands start with /. Plain text sends a prompt.
-Run 'crsr --once /help' to see all interactive commands.
-`);
-}
-
-function renderVersion(): void {
-  console.log(`${APP_NAME} ${APP_VERSION}`);
-}
-
-function parseCliArguments(
-  argv: string[],
-): CliOptions | "help" | "version" {
-  const options: CliOptions = { oneShot: false, update: false };
-
-  for (let index = 0; index < argv.length; index += 1) {
-    const token = argv[index];
-    if (token === "--help" || token === "-h") return "help";
-    if (token === "--version" || token === "-v") return "version";
-
-    if (token === "--once") {
-      options.oneShot = true;
-      continue;
-    }
-
-    if (token === "--update") {
-      options.update = true;
-      continue;
-    }
-
-    if (token === "--workspace") {
-      options.workspace = argv[index + 1];
-      index += 1;
-      continue;
-    }
-
-    options.initialCommand = argv.slice(index).join(" ");
-    break;
-  }
-
-  return options;
-}
-
-function normalizeInitialCommand(
-  initialCommand: string | undefined,
-): string | undefined {
-  if (!initialCommand) return undefined;
-  if (initialCommand.startsWith("/")) return initialCommand;
-
-  const firstToken = initialCommand.trim().split(/\s+/u)[0];
-  const knownNames = new Set([
-    ...allCommands.map((command) => command.name.split(" ")[0]),
-    "mcp",
-  ]);
-
-  return knownNames.has(firstToken) ? `/${initialCommand}` : initialCommand;
-}
 
 async function runOneShotCommand(
   command: string,
@@ -157,17 +84,23 @@ async function runOneShotCommand(
   }
 }
 
-const cliOptions = parseCliArguments(process.argv.slice(2));
-if (cliOptions === "help") {
-  renderHelp();
+const cliArguments = parseCliArguments(process.argv.slice(2));
+if (cliArguments.kind === "help") {
+  console.log(renderHelp());
   process.exit(0);
 }
 
-if (cliOptions === "version") {
-  renderVersion();
+if (cliArguments.kind === "version") {
+  console.log(renderVersion());
   process.exit(0);
 }
 
+if (cliArguments.kind === "error") {
+  process.stderr.write(`${cliArguments.message}\n`);
+  process.exit(1);
+}
+
+const cliOptions = cliArguments.options;
 if (cliOptions.update) {
   void runSelfUpdate()
     .then(() => {

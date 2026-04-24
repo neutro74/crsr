@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { access, chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { APP_NAME, APP_VERSION } from "./version.js";
@@ -26,19 +26,25 @@ interface ProcessWithPkg extends NodeJS.Process {
   pkg?: unknown;
 }
 
+const WRAPPER_EXEC_PATTERN = /^\s*exec\s+node\s+/mu;
+
 /**
  * GitHub release asset filenames (see `npm run package:linux` / multi-target `pkg` in README).
  */
-export function getReleaseAssetName(): string {
-  const { platform, arch } = process;
-
+export function getReleaseAssetNameForTarget(
+  platform: NodeJS.Platform,
+  arch: string,
+): string {
   if (platform === "linux" && arch === "x64") {
     return "crsr-linux-x64";
   }
 
-  if (platform === "darwin" && (arch === "x64" || arch === "arm64")) {
-    // Single macOS build is x64; Apple Silicon runs it under Rosetta when needed.
+  if (platform === "darwin" && arch === "x64") {
     return "crsr-macos-x64";
+  }
+
+  if (platform === "darwin" && arch === "arm64") {
+    return "crsr-macos-arm64";
   }
 
   if (platform === "win32" && arch === "x64") {
@@ -49,6 +55,25 @@ export function getReleaseAssetName(): string {
     `No GitHub release binary for this platform (${platform}-${arch}). ` +
       "Supported: linux-x64, darwin-x64|arm64, win32-x64.",
   );
+}
+
+export function getReleaseAssetName(): string {
+  return getReleaseAssetNameForTarget(process.platform, process.arch);
+}
+
+export function isWrapperInstallScript(content: string): boolean {
+  return WRAPPER_EXEC_PATTERN.test(content);
+}
+
+export async function shouldBlockSelfUpdateTarget(
+  targetPath: string,
+): Promise<boolean> {
+  try {
+    const content = await readFile(targetPath, "utf8");
+    return isWrapperInstallScript(content);
+  } catch {
+    return false;
+  }
 }
 
 async function resolveInstallPath(): Promise<string> {
@@ -85,16 +110,25 @@ async function fetchLatestRelease(): Promise<LatestReleaseResponse> {
   return (await response.json()) as LatestReleaseResponse;
 }
 
-function getDownloadUrl(asset: ReleaseAsset): string {
-  if (asset.browser_download_url) {
-    return asset.browser_download_url;
+export function getVerifiedAssetDownloadMetadata(asset: ReleaseAsset): {
+  downloadUrl: string;
+  digest: string;
+} {
+  const downloadUrl = asset.browser_download_url?.trim();
+  if (!downloadUrl) {
+    throw new Error(
+      `Release asset "${asset.name}" does not include a browser download URL.`,
+    );
   }
 
-  if (asset.url) {
-    return asset.url;
+  const digest = asset.digest?.trim();
+  if (!digest?.startsWith("sha256:")) {
+    throw new Error(
+      `Release asset "${asset.name}" is missing a sha256 digest.`,
+    );
   }
 
-  throw new Error(`Release asset "${asset.name}" does not include a download URL.`);
+  return { downloadUrl, digest };
 }
 
 function verifyDigest(data: Buffer, digest: string | undefined): void {
@@ -166,6 +200,11 @@ export async function runSelfUpdate(): Promise<void> {
       `Unable to determine which ${APP_NAME} executable to replace. Run the local wrapper install first or use the standalone GitHub release binary.`,
     );
   });
+  if (await shouldBlockSelfUpdateTarget(installPath)) {
+    throw new Error(
+      `Refusing to replace the local wrapper at ${installPath}. Rebuild from this checkout with "npm run release", or point CRSR_INSTALL_PATH at a standalone release binary.`,
+    );
+  }
   const assetName = getReleaseAssetName();
 
   process.stdout.write(`Checking the latest ${APP_NAME} release on GitHub...\n`);
@@ -179,14 +218,15 @@ export async function runSelfUpdate(): Promise<void> {
     );
   }
 
+  const { downloadUrl, digest } = getVerifiedAssetDownloadMetadata(asset);
   process.stdout.write(
     `Downloading ${asset.name} from ${releaseName} and replacing ${installPath}...\n`,
   );
   await replaceInstalledBinary(
     installPath,
     asset.name,
-    getDownloadUrl(asset),
-    asset.digest,
+    downloadUrl,
+    digest,
   );
   process.stdout.write(
     `${APP_NAME} updated successfully at ${installPath}. Restart the command to use the new binary.\n`,

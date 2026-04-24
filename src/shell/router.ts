@@ -41,7 +41,12 @@ function expandHome(rawPath: string): string {
   return rawPath;
 }
 
-function tokenize(input: string): string[] {
+export interface TokenizeResult {
+  tokens: string[];
+  error?: string;
+}
+
+export function tokenize(input: string): TokenizeResult {
   const tokens: string[] = [];
   let current = "";
   let quote: '"' | "'" | null = null;
@@ -49,7 +54,16 @@ function tokenize(input: string): string[] {
 
   for (const character of input.trim()) {
     if (escaping) {
-      current += character;
+      if (
+        character === "\\" ||
+        character === '"' ||
+        character === "'" ||
+        /\s/u.test(character)
+      ) {
+        current += character;
+      } else {
+        current += `\\${character}`;
+      }
       escaping = false;
       continue;
     }
@@ -84,11 +98,22 @@ function tokenize(input: string): string[] {
     current += character;
   }
 
+  if (escaping) {
+    current += "\\";
+  }
+
+  if (quote) {
+    return {
+      tokens,
+      error: `Unterminated ${quote === '"' ? "double" : "single"} quote in command.`,
+    };
+  }
+
   if (current.length > 0) {
     tokens.push(current);
   }
 
-  return tokens;
+  return { tokens };
 }
 
 function sanitizeCommandForHistory(input: string): string {
@@ -133,8 +158,16 @@ export class ShellRouter {
       return this.runPrompt(input);
     }
 
-    const tokens = tokenize(input.slice(1));
-    const [command, ...args] = tokens;
+    const tokenized = tokenize(input.slice(1));
+    if (tokenized.error) {
+      return {
+        kind: "message",
+        title: "Parse Error",
+        body: tokenized.error,
+      };
+    }
+
+    const [command, ...args] = tokenized.tokens;
 
     switch (command) {
       case undefined:

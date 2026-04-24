@@ -1,11 +1,12 @@
 {
   "name": "crsr",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Terminal wrapper shell for Cursor Agent",
   "type": "module",
   "main": "dist/crsr.cjs",
   "scripts": {
     "dev": "tsx src/main.tsx",
+    "test": "node --import tsx --test test/*.test.ts",
     "prepare:version": "node ./scripts/sync-version.mjs",
     "prebuild": "npm run prepare:version",
     "build": "tsc -p tsconfig.json",
@@ -18,7 +19,7 @@
     "package:macos": "npm run bundle && mkdir -p release && pkg package.json --targets node18-macos-x64,node18-macos-arm64 --out-path release --public-packages '*'",
     "prepackage:windows": "npm run prepare:version",
     "package:windows": "npm run bundle && mkdir -p release && pkg package.json --targets node18-win-x64 --output release/crsr-win-x64.exe --public-packages '*'",
-    "package:all": "npm run package:linux && npm run package:macos && npm run package:windows",
+    "package:all": "npm run package:linux && npm run package:macos && npm run package:windows && node ./scripts/verify-release-artifacts.mjs",
     "start": "node dist/crsr.cjs",
     "check": "tsc --noEmit -p tsconfig.json"
   },
