@@ -286,8 +286,8 @@ npx pkg package.json \
   --targets node18-linux-x64,node18-win-x64,node18-macos-x64,node18-macos-arm64 \
   --out-path release \
   --public-packages '*'
-mv -f release/crsr-linux release/crsr-linux-x64
-mv -f release/crsr-macos release/crsr-macos-x64
+ mv -f release/crsr-linux release/crsr-linux-x64
+ mv -f release/crsr-x64 release/crsr-macos-x64
 mv -f release/crsr-arm64 release/crsr-macos-arm64
 mv -f release/crsr-win.exe release/crsr-win-x64.exe
 ```
