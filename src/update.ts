@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { access, chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { APP_NAME, APP_VERSION } from "./version.js";
@@ -26,6 +26,11 @@ interface ProcessWithPkg extends NodeJS.Process {
   pkg?: unknown;
 }
 
+interface InstallTarget {
+  path: string;
+  source: "packaged-binary" | "explicit-path" | "default-install";
+}
+
 /**
  * GitHub release asset filenames (see `npm run package:linux` / multi-target `pkg` in README).
  */
@@ -36,9 +41,12 @@ export function getReleaseAssetName(): string {
     return "crsr-linux-x64";
   }
 
-  if (platform === "darwin" && (arch === "x64" || arch === "arm64")) {
-    // Single macOS build is x64; Apple Silicon runs it under Rosetta when needed.
+  if (platform === "darwin" && arch === "x64") {
     return "crsr-macos-x64";
+  }
+
+  if (platform === "darwin" && arch === "arm64") {
+    return "crsr-macos-arm64";
   }
 
   if (platform === "win32" && arch === "x64") {
@@ -47,23 +55,40 @@ export function getReleaseAssetName(): string {
 
   throw new Error(
     `No GitHub release binary for this platform (${platform}-${arch}). ` +
-      "Supported: linux-x64, darwin-x64|arm64, win32-x64.",
+      "Supported: linux-x64, darwin-x64, darwin-arm64, win32-x64.",
   );
 }
 
-async function resolveInstallPath(): Promise<string> {
+export async function isLocalWrapperInstall(targetPath: string): Promise<boolean> {
+  if (process.platform === "win32") {
+    return false;
+  }
+
+  try {
+    const contents = await readFile(targetPath, "utf8");
+    return (
+      contents.startsWith("#!/bin/sh\n") &&
+      contents.includes("CRSR_INSTALL_PATH=") &&
+      contents.includes("exec node ")
+    );
+  } catch {
+    return false;
+  }
+}
+
+export async function resolveInstallTarget(): Promise<InstallTarget> {
   const packagedProcess = process as ProcessWithPkg;
   if (packagedProcess.pkg) {
-    return process.execPath;
+    return { path: process.execPath, source: "packaged-binary" };
   }
 
   const wrapperPath = process.env.CRSR_INSTALL_PATH?.trim();
   if (wrapperPath) {
-    return wrapperPath;
+    return { path: wrapperPath, source: "explicit-path" };
   }
 
   await access(DEFAULT_INSTALL_PATH);
-  return DEFAULT_INSTALL_PATH;
+  return { path: DEFAULT_INSTALL_PATH, source: "default-install" };
 }
 
 async function fetchLatestRelease(): Promise<LatestReleaseResponse> {
@@ -161,11 +186,22 @@ async function replaceInstalledBinary(
 }
 
 export async function runSelfUpdate(): Promise<void> {
-  const installPath = await resolveInstallPath().catch(() => {
+  const target = await resolveInstallTarget().catch(() => {
     throw new Error(
       `Unable to determine which ${APP_NAME} executable to replace. Run the local wrapper install first or use the standalone GitHub release binary.`,
     );
   });
+  if (await isLocalWrapperInstall(target.path)) {
+    const guidance =
+      target.source === "explicit-path"
+        ? `CRSR_INSTALL_PATH points to the local wrapper script at ${target.path}. Point it to a standalone binary instead, or rebuild the wrapper from source with "npm run release".`
+        : `The install at ${target.path} is the local wrapper script created by "npm run release". Rebuild it from source with "npm run release", or set CRSR_INSTALL_PATH to a standalone binary path before running --update.`;
+    throw new Error(
+      `${APP_NAME} cannot self-update a source wrapper install. ${guidance}`,
+    );
+  }
+
+  const installPath = target.path;
   const assetName = getReleaseAssetName();
 
   process.stdout.write(`Checking the latest ${APP_NAME} release on GitHub...\n`);
