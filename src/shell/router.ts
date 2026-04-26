@@ -9,6 +9,7 @@ import {
   renderConfig,
 } from "../output/renderers.js";
 import { allCommands } from "../runtime/commandCatalog.js";
+import { THEME_OPTION_LIST, isThemeId } from "./themes.js";
 import type {
   CommandRunResult,
   CursorAgentAdapter,
@@ -516,16 +517,15 @@ export class ShellRouter {
           return {
             kind: "message",
             title: "Theme",
-            body: `Current theme: ${current}\nOptions: dark, dracula, nord, gruvbox, catppuccin\nUsage: /theme <name>`,
+            body: `Current theme: ${current}\nOptions: ${THEME_OPTION_LIST}\nUsage: /theme <name>`,
           };
         }
-        const validThemes = ["dark", "dracula", "nord", "gruvbox", "catppuccin"];
         const themeName = args[0]!.toLowerCase();
-        if (!validThemes.includes(themeName)) {
+        if (!isThemeId(themeName)) {
           return {
             kind: "message",
             title: "Theme",
-            body: `Unknown theme "${args[0]}". Options: ${validThemes.join(", ")}`,
+            body: `Unknown theme "${args[0]}". Options: ${THEME_OPTION_LIST}`,
           };
         }
         this.store.setTheme(themeName);

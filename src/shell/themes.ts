@@ -184,9 +184,22 @@ export const THEMES: Theme[] = [
 
 export const THEME_IDS = THEMES.map((t) => t.id);
 export const DEFAULT_THEME_ID = "dark";
+export const THEME_OPTION_LIST = THEME_IDS.join(", ");
 
 export function getTheme(id: string): Theme {
   return THEMES.find((t) => t.id === id) ?? THEMES[0]!;
+}
+
+export function isThemeId(id: string): boolean {
+  return THEME_IDS.includes(id);
+}
+
+export function normalizeThemeId(id: string | null | undefined): string {
+  if (!id) {
+    return DEFAULT_THEME_ID;
+  }
+
+  return isThemeId(id) ? id : DEFAULT_THEME_ID;
 }
 
 export function nextThemeId(currentId: string): string {

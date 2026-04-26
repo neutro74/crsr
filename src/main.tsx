@@ -16,6 +16,10 @@ interface CliOptions {
   workspace?: string;
 }
 
+function isOptionToken(value: string | undefined): value is string {
+  return typeof value === "string" && value.startsWith("-");
+}
+
 function renderHelp(): void {
   console.log(`crsr - terminal wrapper for cursor-agent
 
@@ -38,6 +42,13 @@ function renderVersion(): void {
   console.log(`${APP_NAME} ${APP_VERSION}`);
 }
 
+function exitWithError(error: unknown): never {
+  const message =
+    error instanceof Error ? error.message : String(error);
+  process.stderr.write(`${message}\n`);
+  process.exit(1);
+}
+
 function parseCliArguments(
   argv: string[],
 ): CliOptions | "help" | "version" {
@@ -47,6 +58,10 @@ function parseCliArguments(
     const token = argv[index];
     if (token === "--help" || token === "-h") return "help";
     if (token === "--version" || token === "-v") return "version";
+    if (token === "--") {
+      options.initialCommand = argv.slice(index + 1).join(" ");
+      break;
+    }
 
     if (token === "--once") {
       options.oneShot = true;
@@ -59,9 +74,17 @@ function parseCliArguments(
     }
 
     if (token === "--workspace") {
-      options.workspace = argv[index + 1];
+      const nextToken = argv[index + 1];
+      if (!nextToken || isOptionToken(nextToken)) {
+        throw new Error("--workspace requires a path value.");
+      }
+      options.workspace = nextToken;
       index += 1;
       continue;
+    }
+
+    if (token.startsWith("-")) {
+      throw new Error(`Unknown option "${token}". Use --help to see supported flags.`);
     }
 
     options.initialCommand = argv.slice(index).join(" ");
@@ -157,7 +180,12 @@ async function runOneShotCommand(
   }
 }
 
-const cliOptions = parseCliArguments(process.argv.slice(2));
+let cliOptions: CliOptions | "help" | "version";
+try {
+  cliOptions = parseCliArguments(process.argv.slice(2));
+} catch (error) {
+  exitWithError(error);
+}
 if (cliOptions === "help") {
   renderHelp();
   process.exit(0);
@@ -174,10 +202,7 @@ if (cliOptions.update) {
       process.exit(0);
     })
     .catch((error: unknown) => {
-      const message =
-        error instanceof Error ? error.stack ?? error.message : String(error);
-      process.stderr.write(`${message}\n`);
-      process.exit(1);
+      exitWithError(error instanceof Error ? error.stack ?? error.message : error);
     });
 } else {
   const config = loadShellConfig();
@@ -227,9 +252,6 @@ if (cliOptions.update) {
       oneShot: cliOptions.oneShot,
     });
   })().catch((error: unknown) => {
-    const message =
-      error instanceof Error ? error.stack ?? error.message : String(error);
-    process.stderr.write(`${message}\n`);
-    process.exit(1);
+    exitWithError(error instanceof Error ? error.stack ?? error.message : error);
   });
 }

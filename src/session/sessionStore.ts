@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { ShellPaths } from "../config/config.js";
+import { DEFAULT_THEME_ID, normalizeThemeId } from "../shell/themes.js";
 
 interface PersistedSessionState {
   commandHistory: string[];
@@ -41,7 +42,7 @@ const DEFAULT_STATE: PersistedSessionState = {
   sandbox: null,
   approveMcps: false,
   customHeaders: [],
-  theme: "dark",
+  theme: DEFAULT_THEME_ID,
   vimMode: false,
 };
 
@@ -170,7 +171,7 @@ export class SessionStore {
   }
 
   public setTheme(theme: string): void {
-    this.state.theme = theme;
+    this.state.theme = normalizeThemeId(theme);
     this.save();
   }
 
@@ -191,13 +192,17 @@ export class SessionStore {
               )
             : [],
           recentWorkspaces: Array.isArray(parsed.recentWorkspaces)
-            ? parsed.recentWorkspaces.filter(
-                (entry): entry is string => typeof entry === "string",
-              )
+            ? parsed.recentWorkspaces
+                .filter((entry): entry is string => typeof entry === "string")
+                .map((workspace) => normalizeWorkspace(workspace))
+                .filter(
+                  (workspace, index, collection) =>
+                    collection.indexOf(workspace) === index,
+                )
             : [],
           activeWorkspace:
             typeof parsed.activeWorkspace === "string"
-              ? parsed.activeWorkspace
+              ? normalizeWorkspace(parsed.activeWorkspace)
               : initialWorkspace
                 ? normalizeWorkspace(initialWorkspace)
                 : null,
@@ -228,7 +233,9 @@ export class SessionStore {
                 (entry): entry is string => typeof entry === "string",
               )
             : [],
-          theme: typeof parsed.theme === "string" ? parsed.theme : "dark",
+          theme: normalizeThemeId(
+            typeof parsed.theme === "string" ? parsed.theme : DEFAULT_THEME_ID,
+          ),
           vimMode: parsed.vimMode === true,
         };
       } catch {
