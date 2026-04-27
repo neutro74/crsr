@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import path from "node:path";
 import type { CommandRunResult, StreamEvent } from "./cursorAgent.js";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -10,12 +11,61 @@ function getChunkSize(chunks: string[]): number {
   return chunks.reduce((total, item) => total + item.length, 0);
 }
 
-function getShellInvocation(shell: string, command: string): string[] {
-  if (process.platform === "win32") {
-    return ["-Command", command];
+function getShellBaseName(shell: string): string {
+  return path.basename(shell).toLowerCase();
+}
+
+export function getShellInvocation(
+  shell: string | undefined,
+  command: string,
+  platform: NodeJS.Platform = process.platform,
+): { program: string; args: string[] } {
+  if (platform === "win32") {
+    const configuredShell = shell?.trim();
+    const baseName = configuredShell ? getShellBaseName(configuredShell) : "";
+
+    if (
+      ["bash", "bash.exe", "sh", "sh.exe", "zsh", "zsh.exe", "fish", "fish.exe"].includes(
+        baseName,
+      )
+    ) {
+      if (!configuredShell) {
+        return {
+          program: "powershell.exe",
+          args: ["-NoProfile", "-NonInteractive", "-Command", command],
+        };
+      }
+
+      return {
+        program: configuredShell,
+        args: ["-lc", command],
+      };
+    }
+
+    if (baseName === "cmd" || baseName === "cmd.exe") {
+      if (!configuredShell) {
+        return {
+          program: "cmd.exe",
+          args: ["/d", "/s", "/c", command],
+        };
+      }
+
+      return {
+        program: configuredShell,
+        args: ["/d", "/s", "/c", command],
+      };
+    }
+
+    return {
+      program: configuredShell || "powershell.exe",
+      args: ["-NoProfile", "-NonInteractive", "-Command", command],
+    };
   }
 
-  return ["-lc", command];
+  return {
+    program: shell?.trim() || "bash",
+    args: ["-lc", command],
+  };
 }
 
 function appendWithLimit(chunks: string[], chunk: string): void {
@@ -33,9 +83,10 @@ export async function runLocalShellCommand(
   cwd: string,
   onEvent: StreamCallback,
 ): Promise<CommandRunResult> {
-  const shell =
-    process.env.SHELL || (process.platform === "win32" ? "powershell" : "bash");
-  const shellArgs = getShellInvocation(shell, command);
+  const { program: shell, args: shellArgs } = getShellInvocation(
+    process.env.SHELL,
+    command,
+  );
   const startTime = Date.now();
   const stdoutChunks: string[] = [];
   const stderrChunks: string[] = [];

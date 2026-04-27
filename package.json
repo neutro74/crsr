@@ -9,6 +9,7 @@
     "prepare:version": "node ./scripts/sync-version.mjs",
     "prebuild": "npm run prepare:version",
     "build": "tsc -p tsconfig.json",
+    "pretest": "npm run prepare:version",
     "prebundle": "npm run prepare:version",
     "bundle": "esbuild src/main.tsx --bundle --platform=node --format=cjs --external:blessed --outfile=dist/crsr.cjs",
     "release": "npm run bundle && node ./scripts/install-local-wrapper.mjs",
@@ -20,7 +21,8 @@
     "package:windows": "npm run bundle && mkdir -p release && pkg package.json --targets node18-win-x64 --output release/crsr-win-x64.exe --public-packages '*'",
     "package:all": "npm run package:linux && npm run package:macos && npm run package:windows",
     "start": "node dist/crsr.cjs",
-    "check": "tsc --noEmit -p tsconfig.json"
+    "check": "tsc --noEmit -p tsconfig.json",
+    "test": "tsc -p tsconfig.test.json && node --test dist-test/**/*.test.js"
   },
   "keywords": [
     "cursor",

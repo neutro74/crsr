@@ -1,5 +1,13 @@
 import { createHash } from "node:crypto";
-import { access, chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  mkdir,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { APP_NAME, APP_VERSION } from "./version.js";
@@ -29,15 +37,19 @@ interface ProcessWithPkg extends NodeJS.Process {
 /**
  * GitHub release asset filenames (see `npm run package:linux` / multi-target `pkg` in README).
  */
-export function getReleaseAssetName(): string {
-  const { platform, arch } = process;
+export function getReleaseAssetName(
+  platform: NodeJS.Platform = process.platform,
+  arch: string = process.arch,
+): string {
+  if (platform === "darwin" && arch === "arm64") {
+    return "crsr-macos-arm64";
+  }
 
   if (platform === "linux" && arch === "x64") {
     return "crsr-linux-x64";
   }
 
-  if (platform === "darwin" && (arch === "x64" || arch === "arm64")) {
-    // Single macOS build is x64; Apple Silicon runs it under Rosetta when needed.
+  if (platform === "darwin" && arch === "x64") {
     return "crsr-macos-x64";
   }
 
@@ -85,16 +97,15 @@ async function fetchLatestRelease(): Promise<LatestReleaseResponse> {
   return (await response.json()) as LatestReleaseResponse;
 }
 
-function getDownloadUrl(asset: ReleaseAsset): string {
-  if (asset.browser_download_url) {
-    return asset.browser_download_url;
+export function getDownloadUrl(asset: ReleaseAsset): string {
+  const downloadUrl = asset.browser_download_url?.trim();
+  if (downloadUrl) {
+    return downloadUrl;
   }
 
-  if (asset.url) {
-    return asset.url;
-  }
-
-  throw new Error(`Release asset "${asset.name}" does not include a download URL.`);
+  throw new Error(
+    `Release asset "${asset.name}" does not include a browser_download_url. Refusing to fetch the GitHub API asset endpoint directly.`,
+  );
 }
 
 function verifyDigest(data: Buffer, digest: string | undefined): void {
@@ -108,6 +119,29 @@ function verifyDigest(data: Buffer, digest: string | undefined): void {
   if (actualDigest !== expectedDigest) {
     throw new Error(
       `Downloaded binary checksum mismatch. Expected ${expectedDigest}, received ${actualDigest}.`,
+    );
+  }
+}
+
+export function isWrapperInstallScript(data: Buffer): boolean {
+  const preview = data.subarray(0, 4096).toString("utf8");
+  return (
+    preview.startsWith("#!/bin/sh") &&
+    preview.includes("CRSR_INSTALL_PATH=") &&
+    preview.includes("exec node ") &&
+    preview.includes("dist/crsr.cjs")
+  );
+}
+
+async function assertReplaceableInstallPath(targetPath: string): Promise<void> {
+  const existingFile = await readFile(targetPath).catch(() => null);
+  if (!existingFile) {
+    return;
+  }
+
+  if (isWrapperInstallScript(existingFile)) {
+    throw new Error(
+      `Refusing to overwrite the local wrapper at ${targetPath}. Rebuild from source with "npm run release" or point CRSR_INSTALL_PATH at a standalone crsr binary path before running --update.`,
     );
   }
 }
@@ -167,6 +201,7 @@ export async function runSelfUpdate(): Promise<void> {
     );
   });
   const assetName = getReleaseAssetName();
+  await assertReplaceableInstallPath(installPath);
 
   process.stdout.write(`Checking the latest ${APP_NAME} release on GitHub...\n`);
   const release = await fetchLatestRelease();
