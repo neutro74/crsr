@@ -280,15 +280,7 @@ Output: `release/crsr-linux-x64`
 **Linux, macOS, and Windows in one step** (same targets as the release pipeline):
 
 ```bash
-npm run bundle
-mkdir -p release
-npx pkg package.json \
-  --targets node18-linux-x64,node18-win-x64,node18-macos-x64,node18-macos-arm64 \
-  --out-path release \
-  --public-packages '*'
-mv -f release/crsr-linux release/crsr-linux-x64
-mv -f release/crsr-macos release/crsr-macos-x64
-mv -f release/crsr-win.exe release/crsr-win-x64.exe
+npm run package:all
 ```
 
 `pkg` may emit bytecode warnings for some dependencies; the executables should still run.
