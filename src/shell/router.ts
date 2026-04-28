@@ -41,21 +41,42 @@ function expandHome(rawPath: string): string {
   return rawPath;
 }
 
-function tokenize(input: string): string[] {
+export class TokenizeError extends Error {}
+
+export function tokenize(input: string): string[] {
   const tokens: string[] = [];
   let current = "";
   let quote: '"' | "'" | null = null;
-  let escaping = false;
+  let tokenStarted = false;
 
-  for (const character of input.trim()) {
-    if (escaping) {
-      current += character;
-      escaping = false;
-      continue;
-    }
+  const trimmed = input.trim();
+  for (let index = 0; index < trimmed.length; index += 1) {
+    const character = trimmed[index]!;
+    const nextCharacter = trimmed[index + 1];
 
     if (character === "\\") {
-      escaping = true;
+      if (!nextCharacter) {
+        current += "\\";
+        tokenStarted = true;
+        continue;
+      }
+
+      const shouldEscape = quote
+        ? nextCharacter === quote || nextCharacter === "\\"
+        : /\s/u.test(nextCharacter) ||
+          nextCharacter === '"' ||
+          nextCharacter === "'" ||
+          nextCharacter === "\\";
+
+      if (shouldEscape) {
+        current += nextCharacter;
+        tokenStarted = true;
+        index += 1;
+        continue;
+      }
+
+      current += "\\";
+      tokenStarted = true;
       continue;
     }
 
@@ -64,27 +85,35 @@ function tokenize(input: string): string[] {
         quote = null;
       } else {
         current += character;
+        tokenStarted = true;
       }
       continue;
     }
 
     if (character === '"' || character === "'") {
       quote = character;
+      tokenStarted = true;
       continue;
     }
 
     if (/\s/.test(character)) {
-      if (current.length > 0) {
+      if (tokenStarted) {
         tokens.push(current);
         current = "";
+        tokenStarted = false;
       }
       continue;
     }
 
     current += character;
+    tokenStarted = true;
   }
 
-  if (current.length > 0) {
+  if (quote) {
+    throw new TokenizeError(`Unterminated ${quote} quote in command.`);
+  }
+
+  if (tokenStarted) {
     tokens.push(current);
   }
 
@@ -133,7 +162,20 @@ export class ShellRouter {
       return this.runPrompt(input);
     }
 
-    const tokens = tokenize(input.slice(1));
+    let tokens: string[];
+    try {
+      tokens = tokenize(input.slice(1));
+    } catch (error) {
+      if (error instanceof TokenizeError) {
+        return {
+          kind: "message",
+          title: "Command Parse Error",
+          body: `${error.message}\nUse quotes to group arguments and \\ to escape spaces or quotes.`,
+        };
+      }
+      throw error;
+    }
+
     const [command, ...args] = tokens;
 
     switch (command) {

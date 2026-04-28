@@ -26,19 +26,40 @@ interface ProcessWithPkg extends NodeJS.Process {
   pkg?: unknown;
 }
 
+export function isPackagedProcess(
+  targetProcess: NodeJS.Process = process,
+): boolean {
+  return Boolean((targetProcess as ProcessWithPkg).pkg);
+}
+
+export function getWrapperInstallPath(
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  const wrapperPath = env.CRSR_INSTALL_PATH?.trim();
+  return wrapperPath && wrapperPath.length > 0 ? wrapperPath : null;
+}
+
+export function isWrapperInstallPath(installPath: string): boolean {
+  return path.basename(installPath).toLowerCase() === APP_NAME.toLowerCase();
+}
+
 /**
  * GitHub release asset filenames (see `npm run package:linux` / multi-target `pkg` in README).
  */
-export function getReleaseAssetName(): string {
-  const { platform, arch } = process;
-
+export function getReleaseAssetNameForTarget(
+  platform: NodeJS.Platform,
+  arch: string,
+): string {
   if (platform === "linux" && arch === "x64") {
     return "crsr-linux-x64";
   }
 
-  if (platform === "darwin" && (arch === "x64" || arch === "arm64")) {
-    // Single macOS build is x64; Apple Silicon runs it under Rosetta when needed.
+  if (platform === "darwin" && arch === "x64") {
     return "crsr-macos-x64";
+  }
+
+  if (platform === "darwin" && arch === "arm64") {
+    return "crsr-macos-arm64";
   }
 
   if (platform === "win32" && arch === "x64") {
@@ -51,13 +72,16 @@ export function getReleaseAssetName(): string {
   );
 }
 
+export function getReleaseAssetName(): string {
+  return getReleaseAssetNameForTarget(process.platform, process.arch);
+}
+
 async function resolveInstallPath(): Promise<string> {
-  const packagedProcess = process as ProcessWithPkg;
-  if (packagedProcess.pkg) {
+  if (isPackagedProcess()) {
     return process.execPath;
   }
 
-  const wrapperPath = process.env.CRSR_INSTALL_PATH?.trim();
+  const wrapperPath = getWrapperInstallPath();
   if (wrapperPath) {
     return wrapperPath;
   }
@@ -86,12 +110,8 @@ async function fetchLatestRelease(): Promise<LatestReleaseResponse> {
 }
 
 function getDownloadUrl(asset: ReleaseAsset): string {
-  if (asset.browser_download_url) {
+  if (asset.browser_download_url?.trim()) {
     return asset.browser_download_url;
-  }
-
-  if (asset.url) {
-    return asset.url;
   }
 
   throw new Error(`Release asset "${asset.name}" does not include a download URL.`);
@@ -99,7 +119,9 @@ function getDownloadUrl(asset: ReleaseAsset): string {
 
 function verifyDigest(data: Buffer, digest: string | undefined): void {
   if (!digest?.startsWith("sha256:")) {
-    return;
+    throw new Error(
+      `Release asset is missing a sha256 digest. Refusing to replace the installed binary.`,
+    );
   }
 
   const expectedDigest = digest.slice("sha256:".length).toLowerCase();
@@ -166,6 +188,11 @@ export async function runSelfUpdate(): Promise<void> {
       `Unable to determine which ${APP_NAME} executable to replace. Run the local wrapper install first or use the standalone GitHub release binary.`,
     );
   });
+  if (!isPackagedProcess() && isWrapperInstallPath(installPath)) {
+    throw new Error(
+      `The current install path (${installPath}) is a shell wrapper, not a standalone binary. Rebuild from source with "npm run release" or point CRSR_INSTALL_PATH at a packaged binary.`,
+    );
+  }
   const assetName = getReleaseAssetName();
 
   process.stdout.write(`Checking the latest ${APP_NAME} release on GitHub...\n`);

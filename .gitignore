@@ -1,4 +1,6 @@
 dist/
+.dist-test/
+dist-test/
 .cursor/
 node_modules/
 session.json
