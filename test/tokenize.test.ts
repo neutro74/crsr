@@ -17,9 +17,9 @@ test("tokenizeCommandInput supports escaped spaces outside quotes", () => {
 });
 
 test("tokenizeCommandInput keeps a trailing backslash", () => {
-  const result = tokenizeCommandInput(String.raw`workspace C:\temp\`);
+  const result = tokenizeCommandInput("workspace C:\\temp\\");
   assert.deepEqual(result, {
-    tokens: ["workspace", String.raw`C:\temp\`],
+    tokens: ["workspace", "C:\\temp\\"],
   });
 });
 

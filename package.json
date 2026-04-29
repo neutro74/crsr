@@ -10,7 +10,7 @@
     "prebuild": "npm run prepare:version",
     "build": "tsc -p tsconfig.json",
     "test:build": "tsc -p tsconfig.test.json",
-    "test": "npm run test:build && node --test dist-test/test",
+    "test": "npm run test:build && node --test dist-test/test/*.js",
     "prebundle": "npm run prepare:version",
     "bundle": "esbuild src/main.tsx --bundle --platform=node --format=cjs --external:blessed --outfile=dist/crsr.cjs",
     "release": "npm run bundle && node ./scripts/install-local-wrapper.mjs",
