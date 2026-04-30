@@ -287,7 +287,8 @@ npx pkg package.json \
   --out-path release \
   --public-packages '*'
 mv -f release/crsr-linux release/crsr-linux-x64
-mv -f release/crsr-macos release/crsr-macos-x64
+mv -f release/crsr-x64 release/crsr-macos-x64
+mv -f release/crsr-arm64 release/crsr-macos-arm64
 mv -f release/crsr-win.exe release/crsr-win-x64.exe
 ```
 
