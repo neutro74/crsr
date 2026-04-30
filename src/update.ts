@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { access, chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { APP_NAME, APP_VERSION } from "./version.js";
@@ -29,16 +29,20 @@ interface ProcessWithPkg extends NodeJS.Process {
 /**
  * GitHub release asset filenames (see `npm run package:linux` / multi-target `pkg` in README).
  */
-export function getReleaseAssetName(): string {
-  const { platform, arch } = process;
-
+export function getReleaseAssetNameForTarget(
+  platform: NodeJS.Platform,
+  arch: string,
+): string {
   if (platform === "linux" && arch === "x64") {
     return "crsr-linux-x64";
   }
 
-  if (platform === "darwin" && (arch === "x64" || arch === "arm64")) {
-    // Single macOS build is x64; Apple Silicon runs it under Rosetta when needed.
+  if (platform === "darwin" && arch === "x64") {
     return "crsr-macos-x64";
+  }
+
+  if (platform === "darwin" && arch === "arm64") {
+    return "crsr-macos-arm64";
   }
 
   if (platform === "win32" && arch === "x64") {
@@ -49,6 +53,23 @@ export function getReleaseAssetName(): string {
     `No GitHub release binary for this platform (${platform}-${arch}). ` +
       "Supported: linux-x64, darwin-x64|arm64, win32-x64.",
   );
+}
+
+export function getReleaseAssetName(): string {
+  return getReleaseAssetNameForTarget(process.platform, process.arch);
+}
+
+export function isNodeWrapperScript(contents: string): boolean {
+  return contents.includes("CRSR_INSTALL_PATH=") && contents.includes("exec node ");
+}
+
+async function isNodeWrapperInstall(targetPath: string): Promise<boolean> {
+  try {
+    const contents = await readFile(targetPath, "utf8");
+    return isNodeWrapperScript(contents);
+  } catch {
+    return false;
+  }
 }
 
 async function resolveInstallPath(): Promise<string> {
@@ -167,6 +188,13 @@ export async function runSelfUpdate(): Promise<void> {
     );
   });
   const assetName = getReleaseAssetName();
+
+  if (await isNodeWrapperInstall(installPath)) {
+    throw new Error(
+      `${APP_NAME} is running through the local Node wrapper at ${installPath}. ` +
+        "Rebuild from source with `npm run release`, or point CRSR_INSTALL_PATH at a standalone release binary before using self-update.",
+    );
+  }
 
   process.stdout.write(`Checking the latest ${APP_NAME} release on GitHub...\n`);
   const release = await fetchLatestRelease();
