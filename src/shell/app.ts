@@ -611,6 +611,9 @@ export async function runApp({
     "system",
     `crsr ready — workspace: ${contractHome(store.getSnapshot().activeWorkspace ?? os.homedir())}\nType a prompt, /help for commands, Ctrl+P for palette, /settings for settings.`,
   );
+  if (snapshot.sessionWarning) {
+    pushEntry(activeTab().entries, "stderr", snapshot.sessionWarning);
+  }
 
   function refreshSnapshot(): void {
     snapshot = store.getSnapshot();
@@ -1188,10 +1191,10 @@ export async function runApp({
       tab.statusLine = result.exitCode === 0 ? "ready" : `exit ${result.exitCode}`;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown wrapper error";
-      pushEntry(activeTab().entries, "stderr", message);
-      activeTab().statusLine = "error";
+      pushEntry(tab.entries, "stderr", message);
+      tab.statusLine = "error";
     } finally {
-      activeTab().busy = false;
+      tab.busy = false;
       refreshSnapshot();
       renderUi();
       if (!settingsOpen && !paletteOpen && !destroyed) {

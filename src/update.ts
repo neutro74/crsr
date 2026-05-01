@@ -36,9 +36,12 @@ export function getReleaseAssetName(): string {
     return "crsr-linux-x64";
   }
 
-  if (platform === "darwin" && (arch === "x64" || arch === "arm64")) {
-    // Single macOS build is x64; Apple Silicon runs it under Rosetta when needed.
+  if (platform === "darwin" && arch === "x64") {
     return "crsr-macos-x64";
+  }
+
+  if (platform === "darwin" && arch === "arm64") {
+    return "crsr-macos-arm64";
   }
 
   if (platform === "win32" && arch === "x64") {
@@ -47,7 +50,7 @@ export function getReleaseAssetName(): string {
 
   throw new Error(
     `No GitHub release binary for this platform (${platform}-${arch}). ` +
-      "Supported: linux-x64, darwin-x64|arm64, win32-x64.",
+      "Supported: linux-x64, darwin-x64, darwin-arm64, win32-x64.",
   );
 }
 

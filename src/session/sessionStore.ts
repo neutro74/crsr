@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { ShellPaths } from "../config/config.js";
 
@@ -22,7 +22,9 @@ interface TransientState {
   resumeChatId: string | null;
 }
 
-export interface SessionSnapshot extends PersistedSessionState, TransientState {}
+export interface SessionSnapshot extends PersistedSessionState, TransientState {
+  sessionWarning: string | null;
+}
 export interface SessionDefaults {
   model?: string;
   mode?: "normal" | "plan" | "ask";
@@ -51,6 +53,7 @@ function normalizeWorkspace(workspace: string): string {
 
 export class SessionStore {
   private state: PersistedSessionState;
+  private sessionWarning: string | null = null;
   private transient: TransientState = {
     apiKey: null,
     continueMode: false,
@@ -81,6 +84,7 @@ export class SessionStore {
       apiKey: this.transient.apiKey,
       continueMode: this.transient.continueMode,
       resumeChatId: this.transient.resumeChatId,
+      sessionWarning: this.sessionWarning,
     };
   }
 
@@ -179,6 +183,22 @@ export class SessionStore {
     this.save();
   }
 
+  private createDefaultState(
+    initialWorkspace?: string,
+  ): PersistedSessionState {
+    return {
+      ...DEFAULT_STATE,
+      model: this.defaults.model ?? null,
+      mode: this.defaults.mode ?? "normal",
+      forceMode: this.defaults.forceMode ?? false,
+      sandbox: this.defaults.sandbox ?? null,
+      approveMcps: this.defaults.approveMcps ?? false,
+      activeWorkspace: initialWorkspace
+        ? normalizeWorkspace(initialWorkspace)
+        : null,
+    };
+  }
+
   private load(initialWorkspace?: string): PersistedSessionState {
     if (existsSync(this.sessionFile)) {
       try {
@@ -231,32 +251,26 @@ export class SessionStore {
           theme: typeof parsed.theme === "string" ? parsed.theme : "dark",
           vimMode: parsed.vimMode === true,
         };
-      } catch {
-        return {
-          ...DEFAULT_STATE,
-          model: this.defaults.model ?? null,
-          mode: this.defaults.mode ?? "normal",
-          forceMode: this.defaults.forceMode ?? false,
-          sandbox: this.defaults.sandbox ?? null,
-          approveMcps: this.defaults.approveMcps ?? false,
-          activeWorkspace: initialWorkspace
-            ? normalizeWorkspace(initialWorkspace)
-            : null,
-        };
+      } catch (error) {
+        const backupPath = `${this.sessionFile}.corrupt-${Date.now()}`;
+        try {
+          copyFileSync(this.sessionFile, backupPath);
+          this.sessionWarning =
+            `Session state could not be loaded and was reset. A backup was saved to ${backupPath}.`;
+        } catch {
+          this.sessionWarning =
+            `Session state could not be loaded and was reset. The existing file at ${this.sessionFile} may be corrupt.`;
+        }
+
+        if (error instanceof Error && error.message) {
+          this.sessionWarning += ` (${error.message})`;
+        }
+
+        return this.createDefaultState(initialWorkspace);
       }
     }
 
-    return {
-      ...DEFAULT_STATE,
-      model: this.defaults.model ?? null,
-      mode: this.defaults.mode ?? "normal",
-      forceMode: this.defaults.forceMode ?? false,
-      sandbox: this.defaults.sandbox ?? null,
-      approveMcps: this.defaults.approveMcps ?? false,
-      activeWorkspace: initialWorkspace
-        ? normalizeWorkspace(initialWorkspace)
-        : null,
-    };
+    return this.createDefaultState(initialWorkspace);
   }
 
   private save(): void {

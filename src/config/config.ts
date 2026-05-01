@@ -45,16 +45,41 @@ function getXdgPath(envValue: string | undefined, fallback: string): string {
   return envValue && envValue.trim().length > 0 ? envValue : fallback;
 }
 
-export function getShellPaths(): ShellPaths {
+export function getConfigRoot(): string {
   const homeDirectory = os.homedir();
-  const configRoot = getXdgPath(
+
+  if (process.platform === "win32") {
+    return getXdgPath(
+      process.env.APPDATA,
+      path.join(homeDirectory, "AppData", "Roaming"),
+    );
+  }
+
+  return getXdgPath(
     process.env.XDG_CONFIG_HOME,
     path.join(homeDirectory, ".config"),
   );
-  const dataRoot = getXdgPath(
+}
+
+export function getDataRoot(): string {
+  const homeDirectory = os.homedir();
+
+  if (process.platform === "win32") {
+    return getXdgPath(
+      process.env.LOCALAPPDATA,
+      path.join(homeDirectory, "AppData", "Local"),
+    );
+  }
+
+  return getXdgPath(
     process.env.XDG_DATA_HOME,
     path.join(homeDirectory, ".local", "share"),
   );
+}
+
+export function getShellPaths(): ShellPaths {
+  const configRoot = getConfigRoot();
+  const dataRoot = getDataRoot();
 
   const configDir = path.join(configRoot, "crsr");
   const dataDir = path.join(dataRoot, "crsr");

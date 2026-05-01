@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
-import os from "node:os";
 import path from "node:path";
+import { getDataRoot } from "../config/config.js";
 
 export interface AskpassInfo {
   helperPath: string;
@@ -8,14 +8,7 @@ export interface AskpassInfo {
 }
 
 export function getAskpassInfo(): AskpassInfo {
-  const versionDir = path.join(
-    os.homedir(),
-    ".local",
-    "share",
-    "cursor-agent",
-    "versions",
-  );
-
+  const versionDir = path.join(getDataRoot(), "cursor-agent", "versions");
   const helperPath = path.join(versionDir, "cursor-askpass");
 
   return {
