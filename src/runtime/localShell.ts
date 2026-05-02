@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import path from "node:path";
 import type { CommandRunResult, StreamEvent } from "./cursorAgent.js";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -10,9 +11,35 @@ function getChunkSize(chunks: string[]): number {
   return chunks.reduce((total, item) => total + item.length, 0);
 }
 
+function getShellExecutable(): string {
+  if (process.platform === "win32") {
+    return (
+      process.env.SHELL?.trim() ||
+      process.env.ComSpec?.trim() ||
+      "powershell.exe"
+    );
+  }
+
+  return process.env.SHELL?.trim() || "bash";
+}
+
 function getShellInvocation(shell: string, command: string): string[] {
   if (process.platform === "win32") {
-    return ["-Command", command];
+    const shellName = path.win32.basename(shell).toLowerCase();
+    if (shellName === "cmd" || shellName === "cmd.exe") {
+      return ["/d", "/s", "/c", command];
+    }
+
+    if (
+      shellName === "powershell" ||
+      shellName === "powershell.exe" ||
+      shellName === "pwsh" ||
+      shellName === "pwsh.exe"
+    ) {
+      return ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command];
+    }
+
+    return ["-lc", command];
   }
 
   return ["-lc", command];
@@ -33,8 +60,7 @@ export async function runLocalShellCommand(
   cwd: string,
   onEvent: StreamCallback,
 ): Promise<CommandRunResult> {
-  const shell =
-    process.env.SHELL || (process.platform === "win32" ? "powershell" : "bash");
+  const shell = getShellExecutable();
   const shellArgs = getShellInvocation(shell, command);
   const startTime = Date.now();
   const stdoutChunks: string[] = [];
@@ -49,6 +75,7 @@ export async function runLocalShellCommand(
     let timedOut = false;
     let stdoutTruncated = false;
     let stderrTruncated = false;
+    let forceKillTimeout: NodeJS.Timeout | null = null;
 
     const child = spawn(shell, shellArgs, {
       cwd,
@@ -59,6 +86,11 @@ export async function runLocalShellCommand(
     const timeout = setTimeout(() => {
       timedOut = true;
       child.kill("SIGTERM");
+      forceKillTimeout = setTimeout(() => {
+        if (child.exitCode === null && child.signalCode === null) {
+          child.kill("SIGKILL");
+        }
+      }, 5_000);
     }, DEFAULT_TIMEOUT_MS);
 
     child.stdout.on("data", (chunk: Buffer | string) => {
@@ -83,11 +115,17 @@ export async function runLocalShellCommand(
 
     child.on("error", (error) => {
       clearTimeout(timeout);
+      if (forceKillTimeout) {
+        clearTimeout(forceKillTimeout);
+      }
       reject(error);
     });
 
-    child.on("close", (code) => {
+    child.on("close", (code, signal) => {
       clearTimeout(timeout);
+      if (forceKillTimeout) {
+        clearTimeout(forceKillTimeout);
+      }
 
       if (timedOut) {
         onEvent({
@@ -107,6 +145,13 @@ export async function runLocalShellCommand(
         onEvent({
           type: "stderr",
           text: `stderr was truncated after ${MAX_CAPTURE_BYTES} bytes.`,
+        });
+      }
+
+      if (!timedOut && signal) {
+        onEvent({
+          type: "stderr",
+          text: `Command exited due to signal ${signal}.`,
         });
       }
 

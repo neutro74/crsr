@@ -59,7 +59,11 @@ function parseCliArguments(
     }
 
     if (token === "--workspace") {
-      options.workspace = argv[index + 1];
+      const nextToken = argv[index + 1];
+      if (!nextToken || nextToken.startsWith("-")) {
+        throw new Error("--workspace requires a path argument.");
+      }
+      options.workspace = nextToken;
       index += 1;
       continue;
     }

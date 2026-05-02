@@ -26,29 +26,76 @@ interface ProcessWithPkg extends NodeJS.Process {
   pkg?: unknown;
 }
 
-/**
- * GitHub release asset filenames (see `npm run package:linux` / multi-target `pkg` in README).
- */
-export function getReleaseAssetName(): string {
+function normalizeReleaseTag(tag: string | undefined): string | null {
+  if (!tag) {
+    return null;
+  }
+
+  const normalized = tag.trim().replace(/^v/u, "");
+  return normalized.length > 0 ? normalized : null;
+}
+
+function parseReleaseVersion(tag: string | undefined): number[] | null {
+  const normalized = normalizeReleaseTag(tag);
+  if (!normalized) {
+    return null;
+  }
+
+  const match = normalized.match(/^(\d+)\.(\d+)\.(\d+)(?:[.-].*)?$/u);
+  if (!match) {
+    return null;
+  }
+
+  return match.slice(1, 4).map((segment) => Number.parseInt(segment, 10));
+}
+
+function compareReleaseVersions(current: string, published: string | undefined): number | null {
+  const currentVersion = parseReleaseVersion(current);
+  const publishedVersion = parseReleaseVersion(published);
+  if (!currentVersion || !publishedVersion) {
+    return null;
+  }
+
+  for (let index = 0; index < currentVersion.length; index += 1) {
+    const delta = currentVersion[index]! - publishedVersion[index]!;
+    if (delta !== 0) {
+      return delta;
+    }
+  }
+
+  return 0;
+}
+
+function getCompatibleReleaseAssetNames(): string[] {
   const { platform, arch } = process;
 
   if (platform === "linux" && arch === "x64") {
-    return "crsr-linux-x64";
+    return ["crsr-linux-x64"];
   }
 
-  if (platform === "darwin" && (arch === "x64" || arch === "arm64")) {
-    // Single macOS build is x64; Apple Silicon runs it under Rosetta when needed.
-    return "crsr-macos-x64";
+  if (platform === "darwin" && arch === "x64") {
+    return ["crsr-macos-x64"];
+  }
+
+  if (platform === "darwin" && arch === "arm64") {
+    return ["crsr-macos-arm64", "crsr-macos-x64"];
   }
 
   if (platform === "win32" && arch === "x64") {
-    return "crsr-win-x64.exe";
+    return ["crsr-win-x64.exe"];
   }
 
   throw new Error(
     `No GitHub release binary for this platform (${platform}-${arch}). ` +
-      "Supported: linux-x64, darwin-x64|arm64, win32-x64.",
+      "Supported: linux-x64, darwin-x64, darwin-arm64, win32-x64.",
   );
+}
+
+/**
+ * GitHub release asset filenames (see `npm run package:linux` / multi-target `pkg` in README).
+ */
+export function getReleaseAssetName(): string {
+  return getCompatibleReleaseAssetNames()[0]!;
 }
 
 async function resolveInstallPath(): Promise<string> {
@@ -166,16 +213,35 @@ export async function runSelfUpdate(): Promise<void> {
       `Unable to determine which ${APP_NAME} executable to replace. Run the local wrapper install first or use the standalone GitHub release binary.`,
     );
   });
-  const assetName = getReleaseAssetName();
+  const assetCandidates = getCompatibleReleaseAssetNames();
 
   process.stdout.write(`Checking the latest ${APP_NAME} release on GitHub...\n`);
   const release = await fetchLatestRelease();
   const releaseName = release.name ?? release.tag_name ?? "latest release";
-  const asset = release.assets?.find((candidate) => candidate.name === assetName);
+  const versionComparison = compareReleaseVersions(APP_VERSION, release.tag_name);
+
+  if (versionComparison === 0) {
+    process.stdout.write(
+      `${APP_NAME} ${APP_VERSION} is already up to date. No download needed.\n`,
+    );
+    return;
+  }
+
+  if (versionComparison !== null && versionComparison > 0) {
+    const publishedVersion = normalizeReleaseTag(release.tag_name) ?? releaseName;
+    process.stdout.write(
+      `${APP_NAME} ${APP_VERSION} is newer than the latest published release (${publishedVersion}). Skipping update.\n`,
+    );
+    return;
+  }
+
+  const asset = release.assets?.find((candidate) =>
+    assetCandidates.includes(candidate.name),
+  );
 
   if (!asset) {
     throw new Error(
-      `Latest release "${releaseName}" does not include the expected asset "${assetName}".`,
+      `Latest release "${releaseName}" does not include a compatible asset (${assetCandidates.join(", ")}).`,
     );
   }
 

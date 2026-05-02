@@ -4,7 +4,7 @@
 
 It gives Cursor Agent a dedicated TUI with persistent session state, slash commands, local shell mode, workspace switching, and a cleaner “stay in the terminal” workflow for both interactive use and one-shot automation.
 
-**Latest release:** [v1.0.2](https://github.com/neutro74/crsr/releases/tag/v1.0.2) (`crsr --version` should print `1.0.2` when built from this tag).
+**Latest release:** [v1.0.3](https://github.com/neutro74/crsr/releases/tag/v1.0.3) (`crsr --version` should print `1.0.3` when built from this tag).
 
 ## What crsr Does
 
@@ -21,7 +21,7 @@ It gives Cursor Agent a dedicated TUI with persistent session state, slash comma
 - **Vim-style bindings:** optional (`/vim`): transcript scroll, ESC normal mode, `i` / Enter back to insert.
 - **Neovim:** `/nvim [file]` suspends the TUI and opens Neovim in the workspace.
 - **Thinking + subagents:** shows darker thinking text and subagent activity in the transcript.
-- Install as a local Node wrapper from this repo, or use **standalone binaries** from GitHub Releases (Linux, macOS, Windows x64).
+- Install as a local Node wrapper from this repo, or use **standalone binaries** from GitHub Releases (Linux, macOS, Windows).
 
 ## Screenshots
 
@@ -252,12 +252,13 @@ npm run build
 
 ## Standalone binaries (GitHub Releases)
 
-Prebuilt x64 executables are attached to each release. For **v1.0.1** the assets are:
+Prebuilt executables are attached to each release. For **v1.0.3** the release assets are:
 
 | Platform | Asset name |
 |----------|------------|
 | Linux x64 | `crsr-linux-x64` |
 | macOS x64 | `crsr-macos-x64` |
+| macOS arm64 | `crsr-macos-arm64` |
 | Windows x64 | `crsr-win-x64.exe` |
 
 Download from the [Releases](https://github.com/neutro74/crsr/releases) page, mark the binary executable on Unix (`chmod +x`), and ensure `cursor-agent` is available per the resolution order above.
@@ -276,18 +277,10 @@ npm run package:linux
 
 Output: `release/crsr-linux-x64`
 
-**Linux, macOS, and Windows x64 in one step** (same targets as the release pipeline):
+**Linux, macOS, and Windows in one step** (same targets as the release pipeline):
 
 ```bash
-npm run bundle
-mkdir -p release
-npx pkg package.json \
-  --targets node18-linux-x64,node18-win-x64,node18-macos-x64 \
-  --out-path release \
-  --public-packages '*'
-mv -f release/crsr-linux release/crsr-linux-x64
-mv -f release/crsr-macos release/crsr-macos-x64
-mv -f release/crsr-win.exe release/crsr-win-x64.exe
+npm run package:all
 ```
 
 `pkg` may emit bytecode warnings for some dependencies; the executables should still run.
@@ -306,7 +299,7 @@ From the TUI you can run:
 
 (`/update` still delegates to `cursor-agent` and updates the agent, not crsr.)
 
-The updater downloads the **latest** GitHub release and replaces the active `crsr` executable when it can resolve the install path:
+The updater downloads the **latest** GitHub release and replaces the active `crsr` executable when it can resolve the install path. If the installed binary is already on the latest version (or is newer than the latest published release), it skips the download instead of replacing files unnecessarily.
 
 - **Packaged binary:** `process.execPath` (standalone `pkg` builds).
 - **`CRSR_INSTALL_PATH`:** explicit path to the launcher or binary to replace.
@@ -318,7 +311,7 @@ The updater downloads the **latest** GitHub release and replaces the active `crs
 |----|----------------|--------|
 | Linux x64 | `linux` + `x64` | `crsr-linux-x64` |
 | macOS Intel | `darwin` + `x64` | `crsr-macos-x64` |
-| macOS Apple Silicon | `darwin` + `arm64` | `crsr-macos-x64` (x64 build; Rosetta if needed) |
+| macOS Apple Silicon | `darwin` + `arm64` | `crsr-macos-arm64` (falls back to `crsr-macos-x64` for older releases) |
 | Windows x64 | `win32` + `x64` | `crsr-win-x64.exe` |
 
 Other platforms (for example Linux arm64) have no matching release asset yet; self-update will report an error.
@@ -327,5 +320,5 @@ On Windows, replacing a file that is still running can fail; quit `crsr` and run
 
 ## Release versioning
 
-- Release tags (for example `v1.0.1`) correspond to [GitHub Releases](https://github.com/neutro74/crsr/releases).
+- Release tags (for example `v1.0.3`) correspond to [GitHub Releases](https://github.com/neutro74/crsr/releases).
 - `npm run prepare:version` syncs `src/version.ts` from `package.json`, so `crsr -v`, the bundled wrapper, and `pkg` output stay aligned. Release builds should run `npm run bundle` (or a script that runs `prepare:version` first) before packaging.
